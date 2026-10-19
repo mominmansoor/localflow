@@ -53,12 +53,31 @@ You can change any of these in Settings.
 
 ## What you need
 
+**Everyone needs**
 * Windows 10 or 11
-* An NVIDIA graphics card. 8 GB of VRAM is comfortable, I use a 16 GB card. RTX 50 series works fine
-* About 6 GB of free disk space for the speech model, the AI model and the libraries
+* 8 GB of RAM (16 GB is nicer)
+* About 6 GB of free disk space
+* A microphone (your laptop's built in one is fine)
 * [Ollama](https://ollama.com) if you want the AI cleanup (optional, dictation works without it)
 
-No NVIDIA card? It still runs on your CPU, just slower.
+No Mac support for now.
+
+**What you get depends on your hardware.** It runs on pretty much any Windows PC or laptop. A better machine just means faster and more accurate. Find the row that matches yours:
+
+| Your hardware | Speech model | AI cleanup | Time until text appears | What it's like |
+|---|---|---|---|---|
+| **NVIDIA GPU with 8 GB+ VRAM**<br>RTX 3060, 4060 Ti, 4070, any RTX 50 series, etc. | `large-v3-turbo` on GPU | Full (`qwen3:4b-instruct`) | About 0.5 to 1.5 seconds | The best it gets. Basically Wispr Flow. Every feature works, including live preview |
+| **NVIDIA GPU with 4 to 6 GB VRAM**<br>Most gaming laptops: RTX 3050, 4050, 4060 laptop | `large-v3-turbo` on GPU | Full on 6 GB. On 4 GB use `gemma3:1b` | About 1 to 2 seconds | Same accuracy as above, cleanup is a bit simpler on 4 GB cards |
+| **No NVIDIA GPU, recent laptop or PC**<br>Intel Core i5/i7 12th gen+, Ryzen 5000+, 16 GB RAM | `small.en` on CPU | Light (rules only) or `gemma3:1b` | About 1 to 3 seconds | Good accuracy for everyday writing. Unusual names and jargon need a few vocabulary fixes. Leave live preview off |
+| **Older or low power laptop**<br>4 cores, 8 GB RAM, Pentium/Celeron/older i3 | `base.en` on CPU | Light (rules only) | About 2 to 5 seconds | Works, but you'll notice the wait and it gets more words wrong. Fine for short messages |
+
+A few things to know:
+
+* **AMD and Intel graphics don't help here.** The speech engine only speeds up on NVIDIA cards, so those machines use the CPU rows above.
+* **No NVIDIA card is detected automatically.** LocalFlow falls back to the CPU with the `small` model on its own. You can pick `small.en` or `base.en` in **Settings → Speech & mic → Model** (the `.en` versions are a bit more accurate if you only speak English).
+* **On CPU, set cleanup to Light** in **Settings → Cleanup & style**. A big AI model on a CPU takes too long, and if it's slower than the timeout LocalFlow just pastes the rule cleaned text anyway. Light skips the wait.
+* **On a laptop**, each dictation spikes the CPU or GPU for a second or two, so expect the fans to kick in and the battery to drain a bit faster if you dictate a lot. When idle it uses basically nothing.
+* Times are rough and for a normal sentence or two. Longer dictations take a bit longer.
 
 ## Installing
 
