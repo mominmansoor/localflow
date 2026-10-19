@@ -40,10 +40,14 @@ def add_nvidia_dll_dirs() -> None:
 
 
 def predownload(model: str = "large-v3-turbo") -> None:
-    from faster_whisper import download_model
-    print(f"Downloading Whisper model '{model}' (one-time)...")
-    download_model(model)
-    print("Done.")
+    """Download with a visible progress bar (faster-whisper's own helper hides it)."""
+    from faster_whisper.utils import _MODELS
+    from huggingface_hub import snapshot_download
+    repo = _MODELS.get(model, model)
+    print(f"Downloading Whisper model '{model}' from {repo} (one-time)...", flush=True)
+    snapshot_download(repo, allow_patterns=["config.json", "preprocessor_config.json", "model.bin",
+                                            "tokenizer.json", "vocabulary.*"])
+    print("Whisper model ready.", flush=True)
 
 
 def model_cached(model: str) -> bool:
