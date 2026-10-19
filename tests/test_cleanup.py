@@ -138,3 +138,27 @@ def test_warm(settings):
     assert cleanup.warm_llm(settings.get) == "ok"
     settings.set("cleanup.llm_model", "missing")
     assert "not pulled" in cleanup.warm_llm(settings.get)
+
+
+def test_guard_accepts_self_correction_shrink():
+    src = "Oh wait, I just want to let you know that I like football, oh wait, I like tennis."
+    assert guard(src, "I just want to let you know that I like tennis.") is not None
+    assert guard(src, "I like tennis.") is not None
+
+
+def test_guard_still_rejects_summaries_without_correction():
+    src = "We should ship the onboarding flow this week because the old one confuses people a lot"
+    assert guard(src, "Ship it.") is None
+
+
+def test_guard_accepts_quotes():
+    src = "when I said can you send it today he told me not yet"
+    assert guard(src, 'When I said, "Can you send it today?" he told me, "Not yet."') is not None
+
+
+def test_prompt_has_quote_and_correction_rules(settings):
+    _Fake.reply = "I like tennis."
+    r = pipeline.process("Oh wait, I like football, oh wait, I like tennis.", settings.effective())
+    assert r.text == "I like tennis." and r.info["llm"] == "ok"
+    system = _Fake.seen[-1]["messages"][0]["content"]
+    assert "quotation marks" in system and "oh wait" in system

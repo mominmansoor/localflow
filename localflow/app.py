@@ -84,6 +84,7 @@ class LocalFlow:
         self.session: Session | None = None
         self.last_text = ""
         self.recent: deque = deque(maxlen=10)       # (display, actual)
+        self._llm_warned = -1e9
         self._max_timer: threading.Timer | None = None
         self.api = None
         self.settings_window = None
@@ -308,6 +309,9 @@ class LocalFlow:
                for x in (g("snippets") or []) + (g("commands.items") or [])):
             clip = delivery.clip_get() or ""
         r = pipeline.process(raw, sess.eff, clip)
+        if str(r.info.get("llm", "")).startswith("error") and time.monotonic() - self._llm_warned > 300:
+            self._llm_warned = time.monotonic()
+            self.bridge.message.emit("AI cleanup offline - is Ollama running?", True)
         hist_on = self.s.get("history.enabled")
         if r.command:
             delivery.run_command(r.command, clip)
