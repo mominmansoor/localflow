@@ -53,3 +53,25 @@ def test_export_import_strips_secrets(tmp_path):
 
 def test_secret_roundtrip():
     assert unprotect(protect("hunter2")) == "hunter2"
+
+
+def test_new_format_is_not_remigrated(tmp_path):
+    p = tmp_path / "c.json"
+    s = Settings(p)
+    s.set("vocabulary.hotwords", ["GEA", "Vercel"])
+    for _ in range(3):
+        s = Settings(p)
+    assert s.get("vocabulary.hotwords") == ["GEA", "Vercel"]
+    assert json.loads(p.read_text())["vocabulary"]["hotwords"] == ["GEA", "Vercel"]
+
+
+def test_repairs_nested_vocabulary(tmp_path):
+    p = tmp_path / "c.json"
+    nested = {"hotwords": ["GitHub", "Ollama"], "corrections": {}}
+    for _ in range(13):
+        nested = {"hotwords": nested, "corrections": {}}
+    p.write_text(json.dumps({"vocabulary": nested, "cleanup": {"level": "high"}}))
+    s = Settings(p)
+    assert s.get("vocabulary.hotwords") == ["GitHub", "Ollama"]
+    assert s.get("cleanup.level") == "high"
+    assert json.loads(p.read_text())["vocabulary"]["hotwords"] == ["GitHub", "Ollama"]

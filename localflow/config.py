@@ -183,12 +183,39 @@ def _merge(base: dict, over: dict, prefix: str = "") -> dict:
     return out
 
 
+def _is_v01(key: str, value) -> bool:
+    """True if this top-level key is in the old flat v0.1 format.
+
+    "vocabulary" exists in both formats: a list in v0.1, a dict now.
+    """
+    if key == "vocabulary":
+        return isinstance(value, list)
+    return key in _MIGRATE or key == "llm_enabled"
+
+
+def _repair(user: dict) -> bool:
+    """Undo damage from an old migration bug that nested vocabulary inside itself
+    on every launch. Returns True if anything changed."""
+    vocab = user.get("vocabulary")
+    if not isinstance(vocab, dict):
+        return False
+    hot, changed = vocab.get("hotwords"), False
+    while isinstance(hot, dict):          # {"hotwords": {"hotwords": [...]}} -> [...]
+        hot = hot.get("hotwords", [])
+        changed = True
+    if changed:
+        vocab["hotwords"] = hot if isinstance(hot, list) else []
+        log.info("Repaired nested vocabulary in config.json")
+    return changed
+
+
 def migrate(user: dict) -> dict:
-    if not any(k in user for k in _MIGRATE) and "llm_enabled" not in user:
+    old_keys = [k for k, v in user.items() if _is_v01(k, v)]
+    if not old_keys:
         return user
-    new: dict = {k: v for k, v in user.items() if k not in _MIGRATE and k != "llm_enabled" and not k.startswith("_")}
+    new: dict = {k: v for k, v in user.items() if k not in old_keys and not k.startswith("_")}
     for old, path in _MIGRATE.items():
-        if old in user:
+        if old in old_keys:
             set_path(new, path, user[old])
     if user.get("llm_enabled") is False:
         set_path(new, "cleanup.level", "light")
@@ -231,9 +258,10 @@ class Settings:
                     log.error("config.json unreadable (%s) - keeping previous settings", e)
                     return
             migrated = migrate(user)
+            repaired = _repair(migrated)
             self.user = migrated
             self.data = _merge(DEFAULTS, migrated)
-            if migrated is not user:
+            if migrated is not user or repaired:
                 self.save()
 
     def save(self) -> None:
