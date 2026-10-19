@@ -18,7 +18,7 @@ def _setup_logging(debug: bool) -> None:
         handlers.append(logging.StreamHandler())
     logging.basicConfig(level=logging.DEBUG if debug else logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s", handlers=handlers)
-    for noisy in ("faster_whisper", "urllib3", "httpx"):
+    for noisy in ("faster_whisper", "urllib3", "httpx", "httpx2", "httpcore", "httpcore2", "huggingface_hub", "filelock"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
