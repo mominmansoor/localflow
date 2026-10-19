@@ -77,17 +77,62 @@ def running_exes() -> list[str]:
     return sorted({row[0].lower() for row in csv.reader(io.StringIO(out)) if row})
 
 
+def _make_shortcut(lnk: str, root, icon: str | None = None, description: str = "LocalFlow dictation") -> None:
+    import subprocess
+    pyw = os.path.join(str(root), ".venv", "Scripts", "pythonw.exe")
+    q = lambda v: str(v).replace("'", "''")  # noqa: E731 - PowerShell single-quote escape
+    ps = (f"$s=(New-Object -ComObject WScript.Shell).CreateShortcut('{q(lnk)}');"
+          f"$s.TargetPath='{q(pyw)}';$s.Arguments='-m localflow';$s.WorkingDirectory='{q(root)}';"
+          f"$s.Description='{q(description)}';"
+          + (f"$s.IconLocation='{q(icon)},0';" if icon else "") + "$s.Save()")
+    subprocess.run(["powershell", "-NoProfile", "-Command", ps], creationflags=0x08000000, timeout=20, check=True)
+
+
 def set_launch_at_login(enabled: bool, root) -> None:
     if not WIN:
         return
-    import subprocess
     startup = os.path.join(os.environ["APPDATA"], r"Microsoft\Windows\Start Menu\Programs\Startup")
     lnk = os.path.join(startup, "LocalFlow.lnk")
     if not enabled:
         if os.path.exists(lnk):
             os.remove(lnk)
         return
-    pyw = os.path.join(root, ".venv", "Scripts", "pythonw.exe")
-    ps = (f"$s=(New-Object -ComObject WScript.Shell).CreateShortcut('{lnk}');"
-          f"$s.TargetPath='{pyw}';$s.Arguments='-m localflow';$s.WorkingDirectory='{root}';$s.Save()")
-    subprocess.run(["powershell", "-NoProfile", "-Command", ps], creationflags=0x08000000, timeout=15)
+    _make_shortcut(lnk, root, write_icon(root))
+
+
+def write_icon(root) -> str | None:
+    """Save the app icon as data/localflow.ico (for shortcuts)."""
+    try:
+        from PySide6.QtWidgets import QApplication
+        app = QApplication.instance() or QApplication([])  # noqa: F841 - QPixmap needs an app
+        from .app import _tray_icon
+        path = os.path.join(str(root), "data", "localflow.ico")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        if _tray_icon().pixmap(256, 256).save(path, "ICO"):
+            return path
+    except Exception:
+        pass
+    return None
+
+
+def create_shortcuts(root, desktop: bool = True) -> list[str]:
+    """Start Menu (searchable as 'LocalFlow') and Desktop shortcuts."""
+    if not WIN:
+        return []
+    icon = write_icon(root)
+    made = []
+    start_menu = os.path.join(os.environ["APPDATA"], r"Microsoft\Windows\Start Menu\Programs\LocalFlow.lnk")
+    _make_shortcut(start_menu, root, icon)
+    made.append(start_menu)
+    if desktop:
+        desk = os.path.join(os.path.expanduser("~"), "Desktop", "LocalFlow.lnk")
+        try:
+            import ctypes
+            buf = ctypes.create_unicode_buffer(260)
+            if ctypes.windll.shell32.SHGetFolderPathW(None, 0x10, None, 0, buf) == 0:  # CSIDL_DESKTOPDIRECTORY (OneDrive-aware)
+                desk = os.path.join(buf.value, "LocalFlow.lnk")
+        except Exception:
+            pass
+        _make_shortcut(desk, root, icon)
+        made.append(desk)
+    return made

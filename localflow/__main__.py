@@ -35,6 +35,7 @@ def main() -> int:
     ap.add_argument("--import-settings", metavar="FILE")
     ap.add_argument("--list-mics", action="store_true")
     ap.add_argument("--download-model", action="store_true", help="pre-download the Whisper model")
+    ap.add_argument("--create-shortcuts", action="store_true", help="add LocalFlow to the Start Menu and Desktop")
     ap.add_argument("--test-cleanup", metavar="TEXT", help="run the text pipeline on TEXT")
     ap.add_argument("--serve", action="store_true", help="run only the local OpenAI-compatible API (no hotkeys)")
     args = ap.parse_args()
@@ -44,6 +45,11 @@ def main() -> int:
     if args.list_mics:
         from .audio import list_devices
         print(list_devices())
+        return 0
+    if args.create_shortcuts:
+        from . import winapi
+        made = winapi.create_shortcuts(config.ROOT)
+        print("\n".join(f"Created {m}" for m in made) or "Shortcuts are Windows-only.")
         return 0
     if args.download_model:
         from .stt import predownload

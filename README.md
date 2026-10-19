@@ -95,7 +95,7 @@ A few things to know:
 
    The first install downloads a couple of GB, so give it a few minutes. If something goes wrong the window stays open with the error, and a full `install.log` gets saved in the folder.
 
-4. **Double click `run.bat`.** A small icon appears in your system tray and the pill shows up at the bottom of your screen. That's it, hold `Ctrl+Win` and start talking.
+4. **Open LocalFlow.** Search "LocalFlow" in the Start Menu or use the Desktop shortcut (the installer adds both). A small icon appears in your system tray and the pill shows up at the bottom of your screen. That's it, hold `Ctrl+Win` and start talking.
 
 Want it to start with Windows? Run `install.bat startup` instead, or flip the switch in Settings.
 
@@ -105,7 +105,10 @@ Want it to start with Windows? Run `install.bat startup` instead, or flip the sw
 
 * **Double click the tray icon** to open Settings
 * **Right click the tray icon** to switch profiles, cleanup level, microphone and more
-* Running `run.bat` again while it's already open just opens Settings
+* Opening LocalFlow again while it's already running just opens Settings
+* Can't find the tray icon? Click the **^** arrow next to the clock, Windows hides new icons there
+* Want to see your words in the pill as you talk? Turn on **Live preview** in Settings → Speech & mic
+* Installed before shortcuts existed? Double click `create-shortcuts.bat` once
 
 The first dictation after starting takes a few seconds while the models load into your GPU. After that it's quick.
 

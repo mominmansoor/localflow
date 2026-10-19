@@ -537,6 +537,7 @@ class LocalFlow:
         self._file_timer.start(1000)
         self.listener.start()
         self.overlay.set_state("idle")
+        self.overlay.show_message(f"LocalFlow is on · hold {g('hotkeys.dictate')} to dictate", error=False, ms=3500)
         log.info("LocalFlow running. Dictate: %s", g("hotkeys.dictate"))
         code = app.exec()
         self.listener.stop()

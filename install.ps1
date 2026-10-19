@@ -117,6 +117,10 @@ try {
         Write-Host "then run:  ollama pull $model   (dictation works without it)" -ForegroundColor Yellow
     }
 
+    Step "Adding LocalFlow to the Start Menu and Desktop"
+    & $vpy -m localflow --create-shortcuts
+    if ($LASTEXITCODE -ne 0) { Write-Host "Couldn't create shortcuts (not critical). Use run.bat instead." -ForegroundColor Yellow }
+
     if ($Startup) {
         Step "Adding LocalFlow to Windows startup"
         $lnk = Join-Path ([Environment]::GetFolderPath("Startup")) "LocalFlow.lnk"
@@ -127,7 +131,7 @@ try {
         $s.Save()
     }
 
-    Write-Host "`nDone! Quit Wispr Flow (same hotkey), then double-click run.bat." -ForegroundColor Green
+    Write-Host "`nDone! Quit Wispr Flow (same hotkey), then open LocalFlow from the Start Menu (or run.bat)." -ForegroundColor Green
     Write-Host "Double-click the tray icon for Settings." -ForegroundColor Green
     $exitCode = 0
 }
