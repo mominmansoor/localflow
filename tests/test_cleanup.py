@@ -137,7 +137,7 @@ def test_rephrase(settings):
 def test_warm(settings):
     assert cleanup.warm_llm(settings.get) == "ok"
     settings.set("cleanup.llm_model", "missing")
-    assert "not pulled" in cleanup.warm_llm(settings.get)
+    assert "not installed" in cleanup.warm_llm(settings.get)
 
 
 def test_guard_accepts_self_correction_shrink():
@@ -162,3 +162,34 @@ def test_prompt_has_quote_and_correction_rules(settings):
     assert r.text == "I like tennis." and r.info["llm"] == "ok"
     system = _Fake.seen[-1]["messages"][0]["content"]
     assert "quotation marks" in system and "oh wait" in system
+
+
+def _m(name, gb, params=""):
+    return {"name": name, "size_gb": gb, "params": params}
+
+
+def test_installed_models_and_resolve(settings):
+    models = cleanup.installed_models(settings.get)
+    assert [m["name"] for m in models] == ["test-model:latest"]
+    assert cleanup.resolve_model(settings.get, models) == ("test-model:latest", "")
+    settings.set("cleanup.llm_model", "qwen3:4b-instruct")
+    model, note = cleanup.resolve_model(settings.get, models)
+    assert model == "test-model:latest" and "isn't installed" in note
+
+
+def test_resolve_when_ollama_down_or_empty(settings):
+    assert cleanup.resolve_model(settings.get, None)[0] is None
+    assert "ollama pull" in cleanup.resolve_model(settings.get, [])[1]
+
+
+def test_pick_model_prefers_known_good_then_smallest():
+    assert cleanup.pick_model([_m("llama3.1:8b", 4.9), _m("deepseek-r1:70b", 40)]) == "llama3.1:8b"
+    assert cleanup.pick_model([_m("gemma3:4b", 3.3), _m("llama3.1:8b", 4.9)]) == "gemma3:4b"
+    assert cleanup.pick_model([_m("weird:20b", 12), _m("other:7b", 4.1), _m("tiny:0.5b", 0.4)]) == "other:7b"
+    assert cleanup.pick_model([]) is None
+
+
+def test_same_model():
+    assert cleanup.same_model("llama3.1:8b", "llama3.1:8b")
+    assert cleanup.same_model("mistral:latest", "mistral")
+    assert not cleanup.same_model("qwen3:4b", "qwen3:4b-instruct")

@@ -646,15 +646,24 @@ class SettingsWindow(QWidget):
         v.addWidget(c)
 
         c, l = card("Local AI model")
-        self.model_combo = self._combo("cleanup.llm_model", [(self.s.get("cleanup.llm_model"), self.s.get("cleanup.llm_model"))],
-                                       editable=True, width=260)
+        self.model_combo = QComboBox()
+        self.model_combo.setFixedWidth(300)
+        self.model_combo.addItem("Looking for models…", None)
+        self.model_combo.setEnabled(False)
+        self.model_combo.currentIndexChanged.connect(self._model_chosen)
         refresh = _btn("Refresh", self._refresh_models, "Ghost")
+        refresh.setToolTip("Check Ollama again (after installing a new model)")
         holder = QWidget()
         hh = QHBoxLayout(holder)
         hh.setContentsMargins(0, 0, 0, 0)
         hh.addWidget(self.model_combo)
         hh.addWidget(refresh)
-        l.addWidget(row("Model", "Use a small instruct model (qwen3:4b-instruct, gemma3:4b). Install more with: ollama pull <name>", holder))
+        l.addWidget(row("Model", "Every model installed in Ollama on this PC. 3B to 8B models are the sweet spot "
+                                 "for speed. Add more with: ollama pull <name>", holder))
+        self.model_status = QLabel("")
+        self.model_status.setObjectName("Muted")
+        self.model_status.setWordWrap(True)
+        l.addWidget(self.model_status)
         l.addWidget(row("Ollama address", None, self._line("cleanup.ollama_url")))
         l.addWidget(row("Timeout", "Falls back to rule-cleaned text if the model is slower than this.",
                         self._spin("cleanup.llm_timeout_s", 2, 30, 1, " s")))
@@ -694,23 +703,42 @@ class SettingsWindow(QWidget):
         return w
 
     def _refresh_models(self):
-        def done(models, err):
-            if not models:
-                return
-            cur = self.s.get("cleanup.llm_model")
-            self.model_combo.blockSignals(True)
-            self.model_combo.clear()
-            for m in models:
-                self.model_combo.addItem(m, m)
-            idx = self.model_combo.findData(cur)
-            if idx < 0:
-                idx = self.model_combo.findData(f"{cur}:latest")
-            if idx >= 0:
-                self.model_combo.setCurrentIndex(idx)
-            else:
-                self.model_combo.setEditText(cur)
-            self.model_combo.blockSignals(False)
-        run_bg(lambda: cleanup.list_models(self.s.get), done)
+        self.model_status.setText("Checking Ollama…")
+        run_bg(lambda: cleanup.installed_models(self.s.get), self._fill_models)
+
+    def _fill_models(self, models, err):
+        c = self.model_combo
+        cur = self.s.get("cleanup.llm_model")
+        c.blockSignals(True)
+        c.clear()
+        if not models:
+            c.addItem(cur or "No model", None)
+            c.setEnabled(False)
+            self.model_status.setText(
+                "Ollama isn't running. Start Ollama (it's in the Start Menu), then click Refresh."
+                if models is None else
+                "No AI models installed yet. Open a terminal and run:  ollama pull qwen3:4b-instruct  then click Refresh.")
+            c.blockSignals(False)
+            return
+        c.setEnabled(True)
+        for m in models:
+            extra = " · ".join(x for x in (m["params"], f"{m['size_gb']:g} GB" if m["size_gb"] else "") if x)
+            c.addItem(f"{m['name']}    {extra}" if extra else m["name"], m["name"])
+        model, note = cleanup.resolve_model(self.s.get, models)
+        c.setCurrentIndex(max(0, c.findData(model)))
+        c.blockSignals(False)
+        n = len(models)
+        if note:  # configured model isn't installed: switch to one that is
+            self._set("cleanup.llm_model", model)
+            self.model_status.setText(f"{note}. {n} model{'s' if n != 1 else ''} found in Ollama.")
+        else:
+            self.model_status.setText(f"{n} model{'s' if n != 1 else ''} found in Ollama.")
+
+    def _model_chosen(self, i):
+        name = self.model_combo.itemData(i)
+        if name and not cleanup.same_model(name, self.s.get("cleanup.llm_model")):
+            self._set("cleanup.llm_model", name)
+            self.model_status.setText(f"Using {name}. It loads into your GPU in the background.")
 
     def _try_run(self):
         from .. import pipeline

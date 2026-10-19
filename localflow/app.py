@@ -85,6 +85,7 @@ class LocalFlow:
         self.last_text = ""
         self.recent: deque = deque(maxlen=10)       # (display, actual)
         self._llm_warned = -1e9
+        self.llm_models: list[str] = []
         self._max_timer: threading.Timer | None = None
         self.api = None
         self.settings_window = None
@@ -364,6 +365,18 @@ class LocalFlow:
     # startup helpers
     # =======================================================================
     def _warm_llm(self):
+        models = cleanup.installed_models(self.s.get)
+        self.llm_models = [m["name"] for m in models or []]
+        model, note = cleanup.resolve_model(self.s.get, models)
+        if model and note:
+            # configured model isn't installed: switch to one that is, and say so
+            log.info("LLM: %s", note)
+            self.s.set("cleanup.llm_model", model)
+            self.bridge.message.emit(note[:60], False)
+        elif model is None:
+            log.info("LLM: %s", note)
+            self.bridge.message.emit(note[:60], True)
+            return
         status = cleanup.warm_llm(self.s.get)
         log.info("LLM: %s", status)
         if status != "ok":
@@ -449,6 +462,8 @@ class LocalFlow:
         self._radio_menu(m, "Writing style", "cleanup.style",
                          [("neutral", "Neutral"), ("formal", "Formal"), ("casual", "Casual"),
                           ("very_casual", "Very casual"), ("verbatim", "Verbatim")])
+        if self.llm_models:
+            self._radio_menu(m, "AI model", "cleanup.llm_model", [(n, n) for n in self.llm_models])
         self._check_action(m, "Translate to English", "modes.translate")
         self._check_action(m, "Continuous dictation", "modes.continuous")
         try:

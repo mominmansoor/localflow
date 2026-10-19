@@ -190,16 +190,12 @@ def rephrase(selection: str, instruction: str, get) -> str:
 
 def warm_llm(get) -> str:
     """Load the model into VRAM and cache the prompt prefix. Returns 'ok' or a problem."""
-    base = get("cleanup.ollama_url").rstrip("/")
-    try:
-        with urllib.request.urlopen(base + "/api/tags", timeout=3) as r:
-            tags = json.loads(r.read())
-    except Exception:
-        return "Ollama isn't running - AI cleanup off until it starts"
-    names = {m.get("name", "") for m in tags.get("models", [])}
-    want = get("cleanup.llm_model")
-    if want not in names and f"{want}:latest" not in names:
-        return f"Model '{want}' not pulled - run: ollama pull {want}"
+    models = installed_models(get)
+    model, note = resolve_model(get, models)
+    if model is None:
+        return note
+    if note:
+        return f"Model '{get('cleanup.llm_model')}' not installed - pick one in Settings"
     try:
         _chat(get, build_messages("hello", get("cleanup.level"), get("cleanup.style")), 1, timeout=120)
     except Exception as e:
@@ -207,9 +203,79 @@ def warm_llm(get) -> str:
     return "ok"
 
 
-def list_models(get) -> list[str]:
+# ---------------------------------------------------------------------------
+# Installed models
+# ---------------------------------------------------------------------------
+
+# Good fits for dictation cleanup, best first: small, fast, follow instructions well.
+PREFERRED_MODELS = [
+    "qwen3:4b-instruct", "qwen3:4b-instruct-2507", "gemma3:4b", "qwen2.5:7b", "qwen2.5:3b",
+    "llama3.2:3b", "llama3.1:8b", "gemma3:12b", "mistral:7b", "phi4-mini", "qwen3:8b", "qwen3:4b",
+]
+
+
+def _base(name: str) -> str:
+    return name[:-7] if name.endswith(":latest") else name
+
+
+def same_model(a: str | None, b: str | None) -> bool:
+    return bool(a and b) and _base(a) == _base(b)
+
+
+def installed_models(get) -> list[dict] | None:
+    """Chat models installed in Ollama, or None if Ollama isn't reachable.
+
+    Each item: {"name", "size_gb", "params"}. Embedding-only models are skipped.
+    """
     try:
         with urllib.request.urlopen(get("cleanup.ollama_url").rstrip("/") + "/api/tags", timeout=3) as r:
-            return sorted(m.get("name", "") for m in json.loads(r.read()).get("models", []))
+            raw = json.loads(r.read()).get("models", [])
     except Exception:
-        return []
+        return None
+    out = []
+    for m in raw:
+        name = m.get("name") or m.get("model") or ""
+        caps = m.get("capabilities")
+        details = m.get("details") or {}
+        family = " ".join([details.get("family") or ""] + list(details.get("families") or [])).lower()
+        if not name or "embed" in name.lower() or "bert" in family:
+            continue
+        if caps is not None and "completion" not in caps:
+            continue
+        out.append({"name": name, "size_gb": round((m.get("size") or 0) / 1e9, 1),
+                    "params": details.get("parameter_size") or ""})
+    return sorted(out, key=lambda x: x["name"])
+
+
+def pick_model(models: list[dict]) -> str | None:
+    """Best installed model for cleanup: a known good one, else the smallest real chat model."""
+    if not models:
+        return None
+    names = [m["name"] for m in models]
+    for want in PREFERRED_MODELS:
+        for n in names:
+            if same_model(n, want):
+                return n
+    usable = [m for m in models if m["size_gb"] >= 1.0] or models
+    return min(usable, key=lambda m: m["size_gb"] or 99)["name"]
+
+
+def resolve_model(get, models: list[dict] | None) -> tuple[str | None, str]:
+    """Which model to use given what's installed. Returns (model_or_None, note).
+
+    note is "" when the configured model is fine, otherwise a short explanation.
+    """
+    want = get("cleanup.llm_model")
+    if models is None:
+        return None, "Ollama isn't running - AI cleanup off until it starts"
+    if not models:
+        return None, "No AI models in Ollama - run: ollama pull qwen3:4b-instruct"
+    for m in models:
+        if same_model(m["name"], want):
+            return m["name"], ""
+    pick = pick_model(models)
+    return pick, f"Using {pick} ({want} isn't installed)"
+
+
+def list_models(get) -> list[str]:
+    return [m["name"] for m in installed_models(get) or []]
