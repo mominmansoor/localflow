@@ -4,38 +4,49 @@ from __future__ import annotations
 import copy
 import os
 import sys
+import time
 from datetime import datetime
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QFont, QGuiApplication
-from PySide6.QtWidgets import (QAbstractItemView, QButtonGroup, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
-                               QFormLayout, QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget,
-                               QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSpinBox,
-                               QStackedWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget, QInputDialog,
-                               QCheckBox, QSizePolicy)
+from PySide6.QtGui import QColor, QFont, QGuiApplication, QPainter
+from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout,
+                               QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox,
+                               QPlainTextEdit, QPushButton, QScrollArea, QStackedWidget, QTableWidget,
+                               QTableWidgetItem, QVBoxLayout, QWidget, QInputDialog, QCheckBox, QSizePolicy)
 
 from .. import __version__, cleanup, config, diagnostics, winapi
 from ..config import CLEANUP_LEVELS, DEFAULT_INLINE, STYLES
-from ..secrets import protect, snippet_text
+from ..vault import protect, snippet_text
+from . import icons
+from . import theme as T
+from .pill_preview import PillPreview
 from .theme import QSS
-from .widgets import (HotkeyEdit, OverrideEditor, Toggle, card, divider, page_header, row, run_bg,
-                      summarize_overrides)
+from .widgets import (Button, ChoiceGrid, HotkeyEdit, OverrideEditor, SavedBadge, Select, Sidebar, Stepper, Toggle,
+                      card, divider, fade_in, page_header, row, run_bg, summarize_overrides)
 
 LEVEL_INFO = {
     "none": ("None", "Exactly what Whisper heard."),
-    "light": ("Light", "Removes um / uh and stutters. Instant, no AI."),
-    "medium": ("Medium", "Also fixes self-corrections (\"5, no wait, 6\") and punctuation with the local model."),
+    "light": ("Light", "Removes um, uh and stutters. Instant, no AI."),
+    "medium": ("Medium", "Also fixes self-corrections (\"5, no wait, 6\") and punctuation with your local model."),
     "high": ("High", "Also turns spoken lists into lists and smooths phrasing into clean writing."),
 }
 STYLE_INFO = {
     "neutral": ("Neutral", "Keeps your tone."),
     "formal": ("Formal", "Professional, complete sentences."),
-    "casual": ("Casual", "Conversational, contractions OK."),
+    "casual": ("Casual", "Conversational, contractions are fine."),
     "very_casual": ("Very casual", "Chat style, lowercase, no final period."),
     "verbatim": ("Verbatim", "No AI rewriting at all."),
 }
 LANGS = [("auto", "Auto-detect"), ("en", "English"), ("ar", "Arabic"), ("ur", "Urdu"), ("hi", "Hindi"),
          ("fr", "French"), ("de", "German"), ("es", "Spanish"), ("zh", "Chinese"), ("ja", "Japanese")]
+
+NAV = [
+    ("Dictation", [("General", "general"), ("Speech & mic", "mic"), ("Cleanup & style", "cleanup")]),
+    ("Your words", [("Snippets", "snippets"), ("Voice commands", "commands"), ("Vocabulary", "vocabulary"),
+                    ("Spoken punctuation", "punctuation")]),
+    ("Context", [("App rules", "apps"), ("Profiles", "profiles")]),
+    (None, [("History", "history"), ("Advanced", "advanced")]),
+]
 
 
 def _table(headers: list[str], stretch_col: int | tuple = 1) -> QTableWidget:
@@ -45,24 +56,27 @@ def _table(headers: list[str], stretch_col: int | tuple = 1) -> QTableWidget:
     t.setSelectionBehavior(QAbstractItemView.SelectRows)
     t.setSelectionMode(QAbstractItemView.SingleSelection)
     t.setEditTriggers(QAbstractItemView.NoEditTriggers)
-    t.setAlternatingRowColors(True)
     t.setShowGrid(False)
     t.setWordWrap(False)
+    t.setFocusPolicy(Qt.NoFocus)
     h = t.horizontalHeader()
     stretch = stretch_col if isinstance(stretch_col, tuple) else (stretch_col,)
     for i in range(len(headers)):
         h.setSectionResizeMode(i, QHeaderView.Stretch if i in stretch else QHeaderView.ResizeToContents)
     h.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+    h.setHighlightSections(False)
     t.setTextElideMode(Qt.ElideRight)
-    t.verticalHeader().setDefaultSectionSize(34)
+    t.verticalHeader().setDefaultSectionSize(38)
     return t
 
 
-def _btn(text, slot=None, kind=None) -> QPushButton:
-    b = QPushButton(text)
-    if kind:
-        b.setObjectName(kind)
-    b.setCursor(Qt.PointingHandCursor)
+_KINDS = {"Primary": "primary", "Danger": "danger", "Ghost": "ghost", "Chip": "ghost"}
+
+
+def _btn(text, slot=None, kind=None, icon_name=None) -> Button:
+    b = Button(text, _KINDS.get(kind, "secondary"), icon_name)
+    if kind == "Chip":
+        b.setMinimumHeight(26)
     if slot:
         b.clicked.connect(slot)
     return b
@@ -85,6 +99,28 @@ def _mono(widget) -> None:
     f.setStyleHint(QFont.Monospace)
     f.setPointSize(9)
     widget.setFont(f)
+
+
+class StatusDot(QWidget):
+    """Small coloured dot + text: Ready / Loading / Offline."""
+
+    def __init__(self):
+        super().__init__()
+        h = QHBoxLayout(self)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(7)
+        self.dot = QLabel()
+        self.dot.setFixedSize(8, 8)
+        self.text = QLabel("")
+        self.text.setObjectName("Muted")
+        h.addWidget(self.dot)
+        h.addWidget(self.text)
+        h.addStretch(1)
+        self.set("", T.TEXT_3)
+
+    def set(self, text: str, color: str):
+        self.text.setText(text)
+        self.dot.setStyleSheet(f"background: {color}; border-radius: 4px;")
 
 
 # ===========================================================================
@@ -182,7 +218,7 @@ class CommandDialog(QDialog):
         self.trigger = QLineEdit(cmd["trigger"])
         self.trigger.setPlaceholderText("e.g. new tab")
         form.addRow("When I say only", self.trigger)
-        self.action = QComboBox()
+        self.action = Select()
         for k, label in self.ACTIONS:
             self.action.addItem(label, k)
         self.action.setCurrentIndex([a for a, _ in self.ACTIONS].index(cmd.get("action", "hotkey")))
@@ -248,7 +284,7 @@ class RuleDialog(QDialog):
         form.addRow("Name", self.name)
         self.apps = QLineEdit(", ".join(rule.get("match", [])))
         self.apps.setPlaceholderText("slack.exe, discord.exe")
-        self.pick = QComboBox()
+        self.pick = Select()
         self.pick.setEditable(True)
         self.pick.lineEdit().setPlaceholderText("Pick a running app…")
         self.pick.addItems(winapi.running_exes())
@@ -343,8 +379,7 @@ class TextDialog(QDialog):
 # ===========================================================================
 
 class SettingsWindow(QWidget):
-    PAGES = ["General", "Speech & mic", "Cleanup & style", "Snippets", "Voice commands", "Vocabulary",
-             "Spoken punctuation", "App rules", "Profiles", "History", "Advanced"]
+    PAGES = [name for _, items in NAV for name, _icon in items]
 
     def __init__(self, settings, app=None):
         super().__init__()
@@ -356,8 +391,10 @@ class SettingsWindow(QWidget):
             from ..history import History
             self.history = History(config.DATA_DIR / "history.db")
         self.setWindowTitle("LocalFlow")
+        from ..app import _tray_icon
+        self.setWindowIcon(_tray_icon())
         self.setStyleSheet(QSS)
-        self.resize(1040, 720)
+        self.resize(1060, 740)
         self.setMinimumSize(900, 600)
 
         root = QHBoxLayout(self)
@@ -367,25 +404,31 @@ class SettingsWindow(QWidget):
         side = QWidget()
         side.setObjectName("SideWrap")
         side.setAttribute(Qt.WA_StyledBackground)
-        side.setFixedWidth(220)
+        side.setFixedWidth(232)
         sv = QVBoxLayout(side)
-        sv.setContentsMargins(0, 0, 0, 0)
+        sv.setContentsMargins(0, 20, 0, 16)
         sv.setSpacing(0)
         brand = QLabel("LocalFlow")
         brand.setObjectName("Brand")
+        brand.setContentsMargins(22, 0, 0, 0)
         sub = QLabel("Local dictation, unlimited")
         sub.setObjectName("BrandSub")
+        sub.setContentsMargins(22, 2, 0, 6)
         sv.addWidget(brand)
         sv.addWidget(sub)
-        self.nav = QListWidget()
-        self.nav.setObjectName("Sidebar")
-        for p in self.PAGES:
-            self.nav.addItem(QListWidgetItem(p))
+        self.nav = Sidebar(NAV)
         sv.addWidget(self.nav, 1)
-        self.status = QLabel(f"v{__version__} · changes save automatically")
+        foot = QWidget()
+        fv = QVBoxLayout(foot)
+        fv.setContentsMargins(22, 0, 22, 0)
+        fv.setSpacing(4)
+        self.saved = SavedBadge()
+        fv.addWidget(self.saved)
+        self.status = QLabel(f"Version {__version__} · changes save automatically")
         self.status.setObjectName("SideFooter")
         self.status.setWordWrap(True)
-        sv.addWidget(self.status)
+        fv.addWidget(self.status)
+        sv.addWidget(foot)
         root.addWidget(side)
 
         self.stack = QStackedWidget()
@@ -394,54 +437,69 @@ class SettingsWindow(QWidget):
                     self._p_vocab, self._p_inline, self._p_rules, self._p_profiles, self._p_history, self._p_advanced]
         for b in builders:
             self.stack.addWidget(self._scroll(b()))
-        self.nav.currentRowChanged.connect(self._on_page)
-        self.nav.setCurrentRow(0)
+        self.nav.currentChanged.connect(self._on_page)
+        self.nav.setCurrent(0, animated=False)
 
     # -- plumbing ---------------------------------------------------------------
     def _scroll(self, inner: QWidget) -> QScrollArea:
         sa = QScrollArea()
         sa.setWidgetResizable(True)
-        inner.setContentsMargins(32, 26, 32, 28)
-        sa.setWidget(inner)
+        sa.setFrameShape(QScrollArea.NoFrame)
+        # cap the reading width so rows don't stretch across wide windows
+        wrap = QWidget()
+        h = QHBoxLayout(wrap)
+        h.setContentsMargins(36, 30, 36, 36)
+        h.addStretch(1)
+        inner.setMaximumWidth(760)
+        h.addWidget(inner, 100)
+        h.addStretch(1)
+        sa.setWidget(wrap)
         return sa
 
     def _page(self, title, subtitle) -> tuple[QWidget, QVBoxLayout]:
         w = QWidget()
         v = QVBoxLayout(w)
-        v.setSpacing(14)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(18)
         v.addWidget(page_header(title, subtitle))
         return w, v
 
     def _on_page(self, i):
         self.stack.setCurrentIndex(i)
-        if self.PAGES[i] == "History":
+        fade_in(self.stack.currentWidget())
+        name = self.PAGES[i]
+        if name == "History":
             self._history_refresh()
+        elif name == "Cleanup & style":
+            self._warm_for_try()
 
     def open_page(self, name: str) -> None:
         if name in self.PAGES:
-            self.nav.setCurrentRow(self.PAGES.index(name))
+            self.nav.setCurrent(self.PAGES.index(name), animated=self.isVisible())
 
     def _set(self, key, value):
         self.s.set(key, value)
-        self._flash_saved()
+        self.saved.flash()
         if self.app is not None:
             self.app.on_settings_changed()
-
-    def _flash_saved(self):
-        self.status.setText(f"v{__version__} · saved {datetime.now():%H:%M:%S}")
 
     def suspend_hotkeys(self, on: bool):
         if self.app is not None:
             self.app.machine_suspend(on)
 
     # binders
-    def _toggle(self, key) -> Toggle:
+    def _toggle(self, key, also=None) -> Toggle:
         t = Toggle(bool(self.s.get(key)))
-        t.toggled.connect(lambda v: self._set(key, bool(v)))
+
+        def changed(v):
+            self._set(key, bool(v))
+            if also:
+                also(bool(v))
+        t.toggled.connect(changed)
         return t
 
-    def _combo(self, key, options: list[tuple], editable=False, width=210) -> QComboBox:
-        c = QComboBox()
+    def _combo(self, key, options: list[tuple], editable=False, width=220) -> QComboBox:
+        c = Select()
         c.setFixedWidth(width)
         c.setEditable(editable)
         cur = self.s.get(key)
@@ -452,6 +510,9 @@ class SettingsWindow(QWidget):
             c.setCurrentIndex(idx)
         elif editable and cur is not None:
             c.setEditText(str(cur))
+        elif cur is not None:          # a custom value from config.json: keep it selectable
+            c.addItem(str(cur), cur)
+            c.setCurrentIndex(c.count() - 1)
 
         def commit(*_):
             i = c.currentIndex()
@@ -469,16 +530,16 @@ class SettingsWindow(QWidget):
             c.currentIndexChanged.connect(commit)
         return c
 
-    def _spin(self, key, lo, hi, step=1, suffix="") -> QSpinBox:
-        s = QSpinBox()
-        s.setRange(lo, hi)
-        s.setSingleStep(step)
-        s.setSuffix(suffix)
-        s.setFixedWidth(120)
+    def _spin(self, key, lo, hi, step=1, suffix="", also=None) -> Stepper:
+        s = Stepper(lo, hi, step, suffix)
         s.setValue(int(self.s.get(key) or 0))
-        s.editingFinished.connect(lambda: self._set(key, s.value()) if s.value() != self.s.get(key) else None)
-        s.valueChanged.connect(lambda _v: QTimer.singleShot(600, lambda: self._set(key, s.value())
-                                                             if s.value() != self.s.get(key) else None))
+
+        def commit(v):
+            if v != self.s.get(key):
+                self._set(key, v)
+                if also:
+                    also(v)
+        s.committed.connect(commit)
         return s
 
     def _line(self, key, width=260, placeholder="") -> QLineEdit:
@@ -499,15 +560,26 @@ class SettingsWindow(QWidget):
     # =======================================================================
 
     def _p_general(self):
-        w, v = self._page("General", "Hotkeys, where text goes, and how LocalFlow starts.")
+        w, v = self._page("General", "Hotkeys, the pill, and where your text goes.")
+
+        c, l = card("Pill", "The small indicator at the bottom of your screen.")
+        self.pill_preview = PillPreview(bool(self.s.get("overlay.show_idle_pill")), bool(self.s.get("modes.live_preview")))
+        l.addWidget(self.pill_preview)
+        l.addWidget(row("Live preview", "Shows your words in the pill as you speak. Uses the GPU a little while you talk.",
+                        self._toggle("modes.live_preview", also=self.pill_preview.set_live_preview)))
+        l.addWidget(row("Show when idle", "Keep a small pill on screen while you're not dictating, so you know LocalFlow is on.",
+                        self._toggle("overlay.show_idle_pill", also=self.pill_preview.set_show_idle)))
+        l.addWidget(row("Distance from bottom", "Raise it if the pill covers your taskbar or a chat box.",
+                        self._spin("overlay.margin_px", 0, 400, 4, " px")))
+        v.addWidget(c)
+
         c, l = card("Hotkeys", "Click a field, then press the keys. Backspace clears an optional one.")
         l.addWidget(row("Dictate", "Hold to talk, release to insert.", self._hotkey("hotkeys.dictate", False)))
         l.addWidget(row("Hands-free lock", "Lock recording on so you can talk without holding the keys.",
                         self._combo("hotkeys.lock_mode", [("double_tap", "Double-tap the hotkey"),
                                                           ("single_tap", "Single quick tap"), ("off", "Off")])))
-        l.addWidget(row("Double-tap speed", "Max gap between the two taps.",
+        l.addWidget(row("Double-tap speed", "Longest gap allowed between the two taps.",
                         self._spin("hotkeys.double_tap_ms", 200, 900, 25, " ms")))
-        l.addWidget(divider())
         l.addWidget(row("AI rephrase", "Select text, hold, say how to rewrite it (\"make it formal\"), release.",
                         self._hotkey("hotkeys.rephrase")))
         l.addWidget(row("Paste last dictation", "If it landed in the wrong window.", self._hotkey("hotkeys.paste_last")))
@@ -519,7 +591,7 @@ class SettingsWindow(QWidget):
         l.addWidget(row("Delivery", "Paste is fastest. Type works in apps that block paste. Copy only puts it on the clipboard.",
                         self._combo("delivery.method", [("paste", "Paste at cursor"), ("type", "Type it out"),
                                                         ("copy", "Copy only")])))
-        l.addWidget(row("Press Enter after inserting", "Auto-send. Best set per app (App rules) or per profile.",
+        l.addWidget(row("Press Enter after inserting", "Auto-send. Usually better set per app in App rules.",
                         self._toggle("delivery.auto_send")))
         l.addWidget(row("Restore my clipboard", "Puts back what you had copied after pasting.",
                         self._toggle("delivery.restore_clipboard")))
@@ -544,7 +616,6 @@ class SettingsWindow(QWidget):
             self._set("startup.launch_at_login", bool(on))
         login.toggled.connect(set_login)
         l.addWidget(row("Launch at login", None, login))
-        l.addWidget(row("Show idle pill", "Tiny pill at the bottom when not dictating.", self._toggle("overlay.show_idle_pill")))
         v.addWidget(c)
         v.addStretch(1)
         return w
@@ -553,17 +624,17 @@ class SettingsWindow(QWidget):
         from ..stt import MODELS
         w, v = self._page("Speech & mic", "Whisper runs on your GPU. Model changes reload in the background.")
         c, l = card("Speech recognition")
-        l.addWidget(row("Model", "large-v3-turbo: best speed/accuracy on a modern GPU.",
-                        self._combo("whisper.model", [(m, m) for m in MODELS], editable=True)))
+        l.addWidget(row("Model", "large-v3-turbo is the best balance of speed and accuracy on a modern GPU.",
+                        self._combo("whisper.model", [(m, m) for m in MODELS])))
         l.addWidget(row("Language", "Pinning a language is faster and more reliable than auto-detect.",
-                        self._combo("whisper.language", [(None if k == "auto" else k, n) for k, n in LANGS], editable=True)))
+                        self._combo("whisper.language", [(None if k == "auto" else k, n) for k, n in LANGS])))
         l.addWidget(row("Translate to English", "Speak any language, get English text.", self._toggle("modes.translate")))
         l.addWidget(row("Device", None, self._combo("whisper.device", [("cuda", "GPU (CUDA)"), ("cpu", "CPU")])))
         l.addWidget(row("Precision", "float16 is the safe choice on RTX 50-series.",
                         self._combo("whisper.compute_type", [("float16", "float16"), ("int8_float16", "int8_float16"),
                                                              ("int8", "int8"), ("float32", "float32")])))
-        l.addWidget(row("Beam size", "1 = fastest, 5 = more accurate.", self._spin("whisper.beam_size", 1, 10)))
-        l.addWidget(row("Skip silence (VAD)", "Prevents made-up words on silence.", self._toggle("whisper.vad_filter")))
+        l.addWidget(row("Beam size", "1 is fastest, 5 is more accurate.", self._spin("whisper.beam_size", 1, 10)))
+        l.addWidget(row("Skip silence", "Prevents made-up words when nothing was said.", self._toggle("whisper.vad_filter")))
         v.addWidget(c)
 
         c, l = card("Microphone")
@@ -574,98 +645,88 @@ class SettingsWindow(QWidget):
         except Exception:  # noqa: BLE001
             pass
         l.addWidget(row("Input device", None, self._combo("audio.mic_device", mics, width=300)))
-        l.addWidget(row("Keep mic open", "Instant start and captures the moment before you press. Windows shows the mic icon while LocalFlow runs.",
+        l.addWidget(row("Keep mic open", "Instant start, and catches the moment before you press. Windows shows the mic icon while LocalFlow runs.",
                         self._toggle("audio.keep_mic_open")))
         l.addWidget(row("Pre-roll", "Audio kept from just before the hotkey.", self._spin("audio.preroll_ms", 0, 1500, 50, " ms")))
-        l.addWidget(row("Whisper mode", "Boosts quiet speech so you can dictate softly in an open office.",
+        l.addWidget(row("Whisper mode", "Boosts quiet speech so you can dictate softly in a shared room.",
                         self._toggle("audio.whisper_mode")))
-        nr = self._toggle("audio.noise_suppression")
         try:
             import noisereduce  # noqa: F401
-            nr_desc = "Spectral noise gate for noisy rooms. Adds a little latency."
+            nr_desc = "Filters steady background noise. Adds a little latency."
         except ImportError:
-            nr_desc = "Needs: pip install noisereduce"
-        l.addWidget(row("Noise suppression", nr_desc, nr))
+            nr_desc = "Needs one extra package: pip install noisereduce"
+        l.addWidget(row("Noise suppression", nr_desc, self._toggle("audio.noise_suppression")))
         v.addWidget(c)
 
-        c, l = card("Modes")
-        l.addWidget(row("Continuous dictation", "While hands-free, text is inserted at every pause and recording keeps going. Great for long notes.",
+        c, l = card("Long dictation")
+        l.addWidget(row("Continuous dictation", "While hands-free, text is inserted at every pause and recording keeps going.",
                         self._toggle("modes.continuous")))
         l.addWidget(row("Pause length", "Silence that ends a chunk in continuous mode.",
                         self._spin("modes.continuous_silence_ms", 500, 4000, 100, " ms")))
-        l.addWidget(row("Live preview", "Shows words in the pill as you speak (uses the GPU while you talk).",
-                        self._toggle("modes.live_preview")))
         l.addWidget(row("Max recording", None, self._spin("audio.max_recording_seconds", 30, 3600, 30, " s")))
         v.addWidget(c)
         v.addStretch(1)
         return w
 
     def _choice_cards(self, key, info: dict, cols: int) -> QWidget:
-        box = QWidget()
-        grid = QGridLayout(box)
-        grid.setContentsMargins(0, 0, 0, 0)
-        grid.setSpacing(8)
-        group = QButtonGroup(box)
-        group.setExclusive(True)
-        cur = self.s.get(key)
-        for i, (val, (title, desc)) in enumerate(info.items()):
-            b = QPushButton()
-            b.setObjectName("Choice")
-            b.setCheckable(True)
-            b.setChecked(val == cur)
-            b.setMinimumHeight(72)
-            b.setMinimumWidth(0)
-            b.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-            b.setCursor(Qt.PointingHandCursor)
-            inner = QVBoxLayout(b)
-            inner.setContentsMargins(12, 10, 12, 10)
-            inner.setSpacing(2)
-            t = QLabel(title)
-            t.setObjectName("RowTitle")
-            t.setStyleSheet("font-weight: 600;")
-            d = QLabel(desc)
-            d.setObjectName("Muted")
-            d.setWordWrap(True)
-            for lab in (t, d):
-                lab.setAttribute(Qt.WA_TransparentForMouseEvents)
-                inner.addWidget(lab)
-            inner.addStretch(1)
-            b.clicked.connect(lambda _=False, x=val: self._set(key, x))
-            group.addButton(b)
-            grid.addWidget(b, i // cols, i % cols)
-        box._group = group
-        return box
+        grid = ChoiceGrid(info, self.s.get(key), cols)
+        grid.picked.connect(lambda val: self._set(key, val))
+        return grid
 
     def _p_cleanup(self):
-        w, v = self._page("Cleanup & style", "How much LocalFlow tidies what you say. AI steps run on your own GPU via Ollama.")
+        w, v = self._page("Cleanup & style", "How much LocalFlow tidies what you say. The AI runs on your own GPU through Ollama.")
         c, l = card("Cleanup level")
         l.addWidget(self._choice_cards("cleanup.level", {k: LEVEL_INFO[k] for k in CLEANUP_LEVELS}, 2))
         v.addWidget(c)
-        c, l = card("Writing style", "Applies globally. Profiles and App rules can override it (e.g. formal in Outlook).")
+        c, l = card("Writing style", "Applies everywhere. Profiles and App rules can override it, like formal in Outlook.")
         l.addWidget(self._choice_cards("cleanup.style", {k: STYLE_INFO[k] for k in STYLES}, 3))
         v.addWidget(c)
 
+        c, l = card("Try it", "Type something you might say and run it through your current settings.")
+        self.try_in = QPlainTextEdit("um so I I think we should uh ship it on friday no wait actually monday. "
+                                     "email me at momin at example dot com")
+        self.try_in.setFixedHeight(76)
+        self.try_out = QPlainTextEdit()
+        self.try_out.setReadOnly(True)
+        self.try_out.setFixedHeight(84)
+        self.try_out.setPlaceholderText("The cleaned text shows up here.")
+        self.try_info = QLabel("")
+        self.try_info.setObjectName("Muted")
+        self.try_btn = _btn("Run cleanup", self._try_run, "Primary")
+        self.model_state = StatusDot()
+        l.addWidget(self.try_in)
+        bar = QHBoxLayout()
+        bar.setSpacing(12)
+        bar.addWidget(self.try_btn)
+        bar.addWidget(self.try_info)
+        bar.addStretch(1)
+        bar.addWidget(self.model_state)
+        l.addLayout(bar)
+        l.addWidget(self.try_out)
+        v.addWidget(c)
+
         c, l = card("Local AI model")
-        self.model_combo = QComboBox()
+        self.model_combo = Select()
         self.model_combo.setFixedWidth(300)
         self.model_combo.addItem("Looking for models…", None)
         self.model_combo.setEnabled(False)
         self.model_combo.currentIndexChanged.connect(self._model_chosen)
-        refresh = _btn("Refresh", self._refresh_models, "Ghost")
-        refresh.setToolTip("Check Ollama again (after installing a new model)")
+        refresh = _btn("Refresh", self._refresh_models, "Ghost", "refresh")
+        refresh.setToolTip("Check Ollama again after installing a model")
         holder = QWidget()
         hh = QHBoxLayout(holder)
         hh.setContentsMargins(0, 0, 0, 0)
+        hh.setSpacing(6)
         hh.addWidget(self.model_combo)
         hh.addWidget(refresh)
-        l.addWidget(row("Model", "Every model installed in Ollama on this PC. 3B to 8B models are the sweet spot "
-                                 "for speed. Add more with: ollama pull <name>", holder))
+        l.addWidget(row("Model", "Models installed in Ollama on this PC. 3B to 8B is the sweet spot for speed. "
+                                 "Add more with: ollama pull <name>", holder))
         self.model_status = QLabel("")
-        self.model_status.setObjectName("Muted")
+        self.model_status.setObjectName("Faint")
         self.model_status.setWordWrap(True)
         l.addWidget(self.model_status)
         l.addWidget(row("Ollama address", None, self._line("cleanup.ollama_url")))
-        l.addWidget(row("Timeout", "Falls back to rule-cleaned text if the model is slower than this.",
+        l.addWidget(row("Timeout", "Uses the rule-cleaned text if the model takes longer than this.",
                         self._spin("cleanup.llm_timeout_s", 2, 30, 1, " s")))
         l.addWidget(row("Skip AI below", "Short dictations only get the instant rule cleanup.",
                         self._spin("cleanup.llm_min_words", 1, 30, 1, " words")))
@@ -673,35 +734,20 @@ class SettingsWindow(QWidget):
         QTimer.singleShot(300, self._refresh_models)
 
         c, l = card("Formatting")
-        l.addWidget(row("Spoken lists", "\"First milk, second eggs\" becomes a numbered list (also done by High).",
+        l.addWidget(row("Spoken lists", "\"First milk, second eggs\" becomes a numbered list. High does this too.",
                         self._toggle("formatting.spoken_lists")))
-        l.addWidget(row("Times", "\"3 p.m.\" → \"3 PM\"", self._toggle("formatting.smart_times")))
-        l.addWidget(row("Emails", "\"john at example dot com\" → john@example.com", self._toggle("formatting.smart_emails")))
-        l.addWidget(row("Web addresses", "\"github dot com\" → github.com", self._toggle("formatting.smart_urls")))
-        l.addWidget(row("Percent", "\"50 percent\" → 50%", self._toggle("formatting.smart_percent")))
-        l.addWidget(divider())
+        l.addWidget(row("Times", "\"3 p.m.\" becomes 3 PM", self._toggle("formatting.smart_times")))
+        l.addWidget(row("Emails", "\"john at example dot com\" becomes john@example.com", self._toggle("formatting.smart_emails")))
+        l.addWidget(row("Web addresses", "\"github dot com\" becomes github.com", self._toggle("formatting.smart_urls")))
+        l.addWidget(row("Percent", "\"50 percent\" becomes 50%", self._toggle("formatting.smart_percent")))
         l.addWidget(row("Capitalize first letter", None, self._toggle("formatting.capitalize_first")))
         l.addWidget(row("Always end with punctuation", None, self._toggle("formatting.ensure_punctuation")))
         l.addWidget(row("Drop the final period", "Feels more natural in chat.", self._toggle("formatting.strip_trailing_period")))
         v.addWidget(c)
-
-        c, l = card("Try it", "Type what you might say. Runs the full pipeline with your current settings.")
-        self.try_in = QPlainTextEdit("um so I I think we should uh ship it on friday no wait actually monday. "
-                                     "email me at momin at example dot com")
-        self.try_in.setFixedHeight(80)
-        self.try_out = QPlainTextEdit()
-        self.try_out.setReadOnly(True)
-        self.try_out.setFixedHeight(90)
-        self.try_info = QLabel("")
-        self.try_info.setObjectName("Muted")
-        go = _btn("Run cleanup", self._try_run, "Primary")
-        l.addWidget(self.try_in)
-        l.addLayout(_hbox(go, self.try_info))
-        l.addWidget(self.try_out)
-        v.addWidget(c)
         v.addStretch(1)
         return w
 
+    # -- model + Try it -----------------------------------------------------------
     def _refresh_models(self):
         self.model_status.setText("Checking Ollama…")
         run_bg(lambda: cleanup.installed_models(self.s.get), self._fill_models)
@@ -715,9 +761,10 @@ class SettingsWindow(QWidget):
             c.addItem(cur or "No model", None)
             c.setEnabled(False)
             self.model_status.setText(
-                "Ollama isn't running. Start Ollama (it's in the Start Menu), then click Refresh."
+                "Ollama isn't running. Start Ollama from the Start Menu, then click Refresh."
                 if models is None else
-                "No AI models installed yet. Open a terminal and run:  ollama pull qwen3:4b-instruct  then click Refresh.")
+                "No AI models installed yet. In a terminal run:  ollama pull qwen3:4b-instruct  then click Refresh.")
+            self.model_state.set("Offline" if models is None else "No model", T.RED)
             c.blockSignals(False)
             return
         c.setEnabled(True)
@@ -728,37 +775,76 @@ class SettingsWindow(QWidget):
         c.setCurrentIndex(max(0, c.findData(model)))
         c.blockSignals(False)
         n = len(models)
+        found = f"{n} model{'s' if n != 1 else ''} found in Ollama."
         if note:  # configured model isn't installed: switch to one that is
             self._set("cleanup.llm_model", model)
-            self.model_status.setText(f"{note}. {n} model{'s' if n != 1 else ''} found in Ollama.")
+            self.model_status.setText(f"{note}. {found}")
         else:
-            self.model_status.setText(f"{n} model{'s' if n != 1 else ''} found in Ollama.")
+            self.model_status.setText(found)
 
     def _model_chosen(self, i):
         name = self.model_combo.itemData(i)
         if name and not cleanup.same_model(name, self.s.get("cleanup.llm_model")):
             self._set("cleanup.llm_model", name)
-            self.model_status.setText(f"Using {name}. It loads into your GPU in the background.")
+            self.model_status.setText(f"Switched to {name}.")
+            self._warm_for_try(force=True)
+
+    def _warm_for_try(self, force=False):
+        """Load the model into the GPU ahead of time so Try it (and dictation) is instant."""
+        if self.s.get("cleanup.level") not in ("medium", "high"):
+            self.model_state.set("AI off at this level", T.TEXT_3)
+            return
+        if getattr(self, "_warming", False) and not force:
+            return
+        self._warming = True
+        name = self.s.get("cleanup.llm_model")
+        self.model_state.set(f"Loading {name} into GPU…", T.AMBER)
+        t0 = time.perf_counter()
+
+        def done(status, err):
+            self._warming = False
+            if err or status != "ok":
+                self.model_state.set("Model unavailable", T.RED)
+                if status:
+                    self.model_status.setText(str(status))
+                return
+            ms = (time.perf_counter() - t0) * 1000
+            self.model_state.set(f"{self.s.get('cleanup.llm_model')} ready" + (f" · loaded in {ms / 1000:.1f}s" if ms > 1500 else ""),
+                                 T.GREEN)
+        run_bg(lambda: cleanup.warm_llm(self.s.get), done)
 
     def _try_run(self):
         from .. import pipeline
         text = self.try_in.toPlainText()
+        if not text.strip():
+            return
         self.try_info.setText("Running…")
+        self.try_btn.setEnabled(False)
 
         def work():
-            import time as _t
-            t0 = _t.perf_counter()
+            t0 = time.perf_counter()
             r = pipeline.process(text, self.s.effective())
-            return r, (_t.perf_counter() - t0) * 1000
+            return r, (time.perf_counter() - t0) * 1000
 
         def done(res, err):
+            self.try_btn.setEnabled(True)
             if err:
                 self.try_info.setText(f"Error: {err}")
                 return
             r, ms = res
             out = r.display if not r.command else f"(would run voice command: {r.command['trigger']})"
             self.try_out.setPlainText(out)
-            self.try_info.setText(f"{ms:.0f} ms · AI: {r.info.get('llm')}")
+            llm = str(r.info.get("llm", ""))
+            if llm == "ok":
+                self.try_info.setText(f"{ms:.0f} ms total · AI {r.info.get('llm_ms', 0)} ms")
+                self.model_state.set(f"{self.s.get('cleanup.llm_model')} ready", T.GREEN)
+            elif llm == "skipped":
+                self.try_info.setText(f"{ms:.0f} ms · rules only (AI not used at this level or for short text)")
+            elif llm == "rejected":
+                self.try_info.setText(f"{ms:.0f} ms · AI answer rejected, used rule cleanup")
+            else:
+                self.try_info.setText(f"{ms:.0f} ms · AI unavailable, used rule cleanup")
+                self.model_state.set("Model unavailable", T.RED)
         run_bg(work, done)
 
     # -- snippets ---------------------------------------------------------------
@@ -784,7 +870,7 @@ class SettingsWindow(QWidget):
             t.setItem(i, 0, QTableWidgetItem(f"\u201c{sn['trigger']}\u201d"))
             preview = "••••••••" if sn.get("secret") else sn.get("text", "").replace("\n", " ⏎ ")
             t.setItem(i, 1, QTableWidgetItem(preview[:120]))
-            t.setItem(i, 2, QTableWidgetItem("🔒 secret" if sn.get("secret") else ""))
+            t.setItem(i, 2, QTableWidgetItem("Secret" if sn.get("secret") else ""))
 
     def _snip_add(self):
         d = SnippetDialog(self)

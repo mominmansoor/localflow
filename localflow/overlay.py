@@ -23,14 +23,14 @@ BARS = 17
 BARS_W = BARS * 3 + (BARS - 1) * 3
 PREVIEW_MAX = 300
 
-BG = QColor(16, 16, 18, 238)
-BORDER = QColor(255, 255, 255, 38)
-FG = QColor(255, 255, 255)
-MUTED = QColor(255, 255, 255, 150)
-RED = QColor(255, 82, 82)
-VIOLET = QColor(150, 130, 255)
-AMBER = QColor(255, 196, 77)
-GREEN = QColor(80, 220, 140)
+BG = QColor(18, 18, 18, 240)
+BORDER = QColor(255, 255, 255, 34)
+FG = QColor(237, 237, 237)
+MUTED = QColor(237, 237, 237, 150)
+RED = QColor("#e5674f")       # hands-free recording
+BLUE = QColor("#7aa7e8")      # rephrase
+AMBER = QColor("#e0a84b")     # paused
+GREEN = QColor("#5bb98c")     # done
 
 
 class Overlay(QWidget):
@@ -101,7 +101,7 @@ class Overlay(QWidget):
 
     def show_message(self, text: str, error: bool = True, ms: int = 3000) -> None:
         self.message = text
-        self.msg_color = RED if error else FG
+        self.msg_color = QColor("#f08a76") if error else FG
         self.set_state("message")
         self._revert.start(ms)
 
@@ -220,7 +220,7 @@ class Overlay(QWidget):
         if self.state in ("locked", "rephrase"):
             r = 3.5 + 0.8 * math.sin(t * 5)
             p.setPen(Qt.NoPen)
-            p.setBrush(RED if self.state == "locked" else VIOLET)
+            p.setBrush(RED if self.state == "locked" else BLUE)
             p.drawEllipse(QRectF(x + 1 - r, cy - r, 2 * r, 2 * r))
             x += 18
         maxh = rect.height() - 12

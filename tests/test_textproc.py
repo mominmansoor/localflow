@@ -32,7 +32,7 @@ def test_snippets_roundtrip():
              {"trigger": "today's date", "text": "${day}", "secret": False}]
     text, found = tp.insert_snippet_placeholders("Thanks a lot. My signature.", snips)
     assert text == "Thanks a lot. [[S1]]"
-    from localflow.secrets import snippet_text
+    from localflow.vault import snippet_text
     assert tp.expand_snippets(text, found, snippet_text) == "Thanks a lot. Best,\nMomin"
     text, found = tp.insert_snippet_placeholders("my password", snips)
     assert tp.expand_snippets(text, found, snippet_text) == "hunter2"

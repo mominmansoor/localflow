@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from . import cleanup, textproc
-from .secrets import snippet_text
+from .vault import snippet_text
 
 
 @dataclass

@@ -38,6 +38,7 @@ def main() -> int:
     ap.add_argument("--create-shortcuts", action="store_true", help="add LocalFlow to the Start Menu and Desktop")
     ap.add_argument("--test-cleanup", metavar="TEXT", help="run the text pipeline on TEXT")
     ap.add_argument("--serve", action="store_true", help="run only the local OpenAI-compatible API (no hotkeys)")
+    ap.add_argument("--restarted", action="store_true", help=argparse.SUPPRESS)  # internal: relaunch after update
     args = ap.parse_args()
     _setup_logging(args.debug)
     s = config.Settings()

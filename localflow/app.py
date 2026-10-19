@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import queue
 import sys
 import threading
@@ -86,6 +87,7 @@ class LocalFlow:
         self.recent: deque = deque(maxlen=10)       # (display, actual)
         self._llm_warned = -1e9
         self.llm_models: list[str] = []
+        self._warmed_sig = None
         self._max_timer: threading.Timer | None = None
         self.api = None
         self.settings_window = None
@@ -113,14 +115,31 @@ class LocalFlow:
         except Exception:
             log.exception("mic reconfigure failed")
         self.stt.reload_if_needed()
-        self.overlay.show_idle = g("overlay.show_idle_pill")
-        self.overlay.margin = g("overlay.margin_px")
-        if self.overlay.state in ("idle", "hidden"):
-            self.overlay.set_state("idle")
+        self._apply_overlay()
         self._sync_api()
         self.history.prune(g("history.retention_days") if g("history.enabled") else 0)
-        if g("cleanup.level") in ("medium", "high"):
+        # Only (re)load the AI model when something it depends on changed. Warming on
+        # every toggle queued GPU work in front of real requests.
+        sig = self._llm_signature()
+        if g("cleanup.level") in ("medium", "high") and sig != self._warmed_sig:
             threading.Thread(target=self._warm_llm, daemon=True).start()
+
+    def _llm_signature(self):
+        g = self.s.get
+        return (g("cleanup.llm_model"), g("cleanup.ollama_url"), g("cleanup.level"), g("cleanup.style"),
+                tuple(g("vocabulary.hotwords") or []))
+
+    def _apply_overlay(self):
+        g = self.s.get
+        ov = self.overlay
+        ov.show_idle = bool(g("overlay.show_idle_pill"))
+        margin = int(g("overlay.margin_px") or 0)
+        moved = margin != ov.margin
+        ov.margin = margin
+        if ov.state in ("idle", "hidden", "paused", "done"):
+            ov.set_state("idle")            # re-evaluates show_idle -> idle or hidden
+        elif moved and ov.isVisible():
+            ov._place()
 
     def _poll_settings_file(self):
         if self.s.reload_if_changed():
@@ -379,7 +398,9 @@ class LocalFlow:
             return
         status = cleanup.warm_llm(self.s.get)
         log.info("LLM: %s", status)
-        if status != "ok":
+        if status == "ok":
+            self._warmed_sig = self._llm_signature()
+        else:
             self.bridge.message.emit(status[:58], True)
 
     def _after_stt_load(self):
@@ -489,7 +510,51 @@ class LocalFlow:
         m.addAction("Hotkey cheat sheet", self._show_cheat)
         m.addAction("Diagnostics…", lambda: self.open_settings("Advanced"))
         m.addSeparator()
+        m.addAction("Restart LocalFlow", self.restart)
         m.addAction("Quit LocalFlow", QApplication.instance().quit)
+
+    # -- restart (also used automatically when LocalFlow's own files are updated) ----
+    def _code_stamp(self) -> float:
+        pkg = os.path.dirname(os.path.abspath(__file__))
+        newest = 0.0
+        for d, _dirs, files in os.walk(pkg):
+            if "__pycache__" in d:
+                continue
+            for f in files:
+                if f.endswith(".py"):
+                    try:
+                        newest = max(newest, os.path.getmtime(os.path.join(d, f)))
+                    except OSError:
+                        pass
+        return newest
+
+    def _check_code_updated(self):
+        stamp = self._code_stamp()
+        if stamp <= self._code_loaded:
+            self._code_pending = 0.0
+            return
+        busy = self.session is not None and self.session.active or not self.jobs.empty()
+        if stamp != self._code_pending or busy:   # wait until files stop changing and we're idle
+            self._code_pending = stamp
+            return
+        log.info("LocalFlow files were updated - restarting to load them")
+        self.restart()
+
+    def restart(self):
+        import subprocess
+        try:
+            self.listener.stop()
+            self.recorder.close()
+            if self.api:
+                self.api.stop()
+            self._ipc.close()
+            _release_single_instance()
+            flags = 0x00000008 | 0x00000200 if sys.platform == "win32" else 0  # DETACHED | NEW_PROCESS_GROUP
+            subprocess.Popen([sys.executable, "-m", "localflow", "--restarted"], cwd=str(config.ROOT),
+                             creationflags=flags, close_fds=True)
+        except Exception:
+            log.exception("restart failed")
+        QApplication.instance().quit()
 
     def _show_cheat(self):
         from .ui.settings_window import TextDialog
@@ -550,6 +615,10 @@ class LocalFlow:
         self._file_timer = QTimer()
         self._file_timer.timeout.connect(self._poll_settings_file)
         self._file_timer.start(1000)
+        self._code_loaded, self._code_pending = self._code_stamp(), 0.0
+        self._code_timer = QTimer()
+        self._code_timer.timeout.connect(self._check_code_updated)
+        self._code_timer.start(2000)
         self.listener.start()
         self.overlay.set_state("idle")
         self.overlay.show_message(f"LocalFlow is on · hold {g('hotkeys.dictate')} to dictate", error=False, ms=3500)
@@ -575,17 +644,44 @@ def send_to_running(msg: str) -> bool:
     return True
 
 
+_MUTEX = None
+
+
 def _single_instance() -> bool:
+    global _MUTEX
     if sys.platform != "win32":
         return True
     import ctypes
-    _single_instance.handle = ctypes.windll.kernel32.CreateMutexW(None, False, "Global\\LocalFlowDictation")
-    return ctypes.windll.kernel32.GetLastError() != 183  # ERROR_ALREADY_EXISTS
+    k32 = ctypes.windll.kernel32
+    k32.CreateMutexW.restype = ctypes.c_void_p
+    h = k32.CreateMutexW(None, False, "Global\\LocalFlowDictation")
+    if k32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+        if h:
+            k32.CloseHandle(ctypes.c_void_p(h))   # don't keep the other instance's mutex alive
+        return False
+    _MUTEX = h
+    return True
+
+
+def _release_single_instance() -> None:
+    global _MUTEX
+    if _MUTEX and sys.platform == "win32":
+        import ctypes
+        ctypes.windll.kernel32.CloseHandle(ctypes.c_void_p(_MUTEX))
+    _MUTEX = None
 
 
 def main(settings: config.Settings | None = None) -> int:
     app = QApplication.instance() or QApplication(sys.argv)  # noqa: F841 - needed for QLocalSocket
-    if not _single_instance():
+    got = _single_instance()
+    if not got and "--restarted" in sys.argv:
+        # the old instance is shutting down; wait for it to let go
+        import time as _t
+        end = _t.monotonic() + 15
+        while not got and _t.monotonic() < end:
+            _t.sleep(0.3)
+            got = _single_instance()
+    if not got:
         send_to_running("settings")   # second launch = open Settings in the running app
         return 0
     diagnostics.install_crash_handler()

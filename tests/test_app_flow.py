@@ -8,7 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from localflow import app as appmod  # noqa: E402
 from localflow import config, delivery, hotkey, winapi  # noqa: E402
-from localflow.secrets import protect  # noqa: E402
+from localflow.vault import protect  # noqa: E402
 
 
 class FakeRecorder:

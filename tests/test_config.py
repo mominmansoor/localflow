@@ -3,7 +3,7 @@ import os
 import time
 
 from localflow.config import Settings
-from localflow.secrets import protect, unprotect
+from localflow.vault import protect, unprotect
 
 
 def test_defaults_and_set(tmp_path):
