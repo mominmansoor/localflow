@@ -88,15 +88,17 @@ class Toggle(_HoverMixin, QAbstractButton):
         self.setChecked(checked)
         self.setCursor(Qt.PointingHandCursor)
         self.setFixedSize(self.W, self.H)
-        self._pos = 1.0 if checked else 0.0
+        self._knob = 1.0 if checked else 0.0
         self._press = 0.0
-        self.toggled.connect(lambda on: animate(self, b"pos", 1.0 if on else 0.0, 200, QEasingCurve.OutCubic))
+        # NB: never name an animated property "pos" - QWidget already has a "pos"
+        # property (its screen position), and animating it slides the whole widget away.
+        self.toggled.connect(lambda on: animate(self, b"knob", 1.0 if on else 0.0, 200, QEasingCurve.OutCubic))
 
-    def get_pos(self):
-        return self._pos
+    def get_knob(self):
+        return self._knob
 
-    def set_pos(self, v):
-        self._pos = v
+    def set_knob(self, v):
+        self._knob = v
         self.update()
 
     def get_press(self):
@@ -106,7 +108,7 @@ class Toggle(_HoverMixin, QAbstractButton):
         self._press = v
         self.update()
 
-    pos = Property(float, get_pos, set_pos)
+    knob = Property(float, get_knob, set_knob)
     press = Property(float, get_press, set_press)
     hover = Property(float, _HoverMixin.get_hover, _HoverMixin.set_hover)
 
@@ -114,7 +116,7 @@ class Toggle(_HoverMixin, QAbstractButton):
         super().setChecked(on)
         if not self.signalsBlocked():
             return
-        self._pos = 1.0 if on else 0.0
+        self._knob = 1.0 if on else 0.0
         self.update()
 
     def mousePressEvent(self, e):
@@ -136,7 +138,7 @@ class Toggle(_HoverMixin, QAbstractButton):
         p.setRenderHint(QPainter.Antialiasing)
         off = mix("#2f2f2f", "#3a3a3a", self._hover)
         on = mix(T.ACCENT, "#ffffff", self._hover)
-        track = mix(off, on, self._pos)
+        track = mix(off, on, self._knob)
         if not self.isEnabled():
             track.setAlphaF(0.4)
         p.setPen(Qt.NoPen)
@@ -145,10 +147,10 @@ class Toggle(_HoverMixin, QAbstractButton):
         # knob: stretches toward its direction of travel while pressed
         d = self.H - 6
         stretch = 5 * self._press
-        x = 3 + self._pos * (self.W - 6 - d)
-        if self._pos > 0.5:
+        x = 3 + self._knob * (self.W - 6 - d)
+        if self._knob > 0.5:
             x -= stretch
-        p.setBrush(mix("#d6d6d6", T.ON_ACCENT, self._pos))
+        p.setBrush(mix("#d6d6d6", T.ON_ACCENT, self._knob))
         p.drawRoundedRect(QRectF(x, 3, d + stretch, d), d / 2, d / 2)
         p.end()
 
