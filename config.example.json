@@ -1,0 +1,8 @@
+{
+  "hotkeys": { "dictate": "ctrl+win", "lock_mode": "double_tap" },
+  "cleanup": { "level": "medium", "style": "neutral", "llm_model": "qwen3:4b-instruct" },
+  "vocabulary": { "hotwords": ["GitHub", "Ollama", "Supabase", "Vercel"], "corrections": {} },
+  "snippets": [
+    { "trigger": "my signature", "text": "Best regards,\nMomin", "secret": false }
+  ]
+}

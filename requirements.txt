@@ -1,0 +1,12 @@
+faster-whisper>=1.1.1
+ctranslate2>=4.5.0
+# CUDA 12.8+ cuBLAS / cuDNN 9 are required for RTX 50-series (Blackwell, sm_120)
+nvidia-cublas-cu12>=12.8
+nvidia-cudnn-cu12>=9.8,<10
+numpy
+sounddevice>=0.5
+pynput>=1.8
+pyperclip>=1.9
+PySide6-Essentials>=6.8
+# Optional: noise suppression (Settings -> Speech & mic)
+# noisereduce>=3.0
