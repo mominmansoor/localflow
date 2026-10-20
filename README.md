@@ -2,7 +2,32 @@
 
 Free, unlimited voice dictation for Windows that runs entirely on your own PC.
 
+<p align="center">
+  <img src="docs/screenshots/hero.png" alt="The LocalFlow pill while dictating, in hands free mode, and while transcribing" width="100%" />
+</p>
+
 I was paying for Wispr Flow and realised everything it does can run locally on a decent GPU. So I built my own. Hold a hotkey, talk, let go, and your words show up wherever your cursor is, cleaned up and punctuated. No subscription, no word limits, and nothing you say ever leaves your computer.
+
+## Screenshots
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/settings-general.png" alt="General settings with a live preview of the pill and hotkeys shown as keycaps" /></td>
+    <td width="50%"><img src="docs/screenshots/settings-cleanup.png" alt="Cleanup settings with writing styles and the Try it box fixing a self correction" /></td>
+  </tr>
+  <tr>
+    <td><sub><b>General.</b> The pill, its live preview and your hotkeys</sub></td>
+    <td><sub><b>Cleanup &amp; style.</b> "friday no wait actually monday" becomes "Monday", in about 0.4 s</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/settings-snippets.png" alt="Snippets list including an encrypted secret snippet" /></td>
+    <td width="50%"><img src="docs/screenshots/settings-history.png" alt="Searchable dictation history showing what Whisper heard and the cleaned result" /></td>
+  </tr>
+  <tr>
+    <td><sub><b>Snippets.</b> Say "my signature" and it types the whole thing. Secret ones stay encrypted</sub></td>
+    <td><sub><b>History.</b> Everything you've said, what Whisper heard, and how long it took</sub></td>
+  </tr>
+</table>
 
 ## What it does
 

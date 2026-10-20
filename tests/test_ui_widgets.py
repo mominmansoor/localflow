@@ -92,3 +92,17 @@ def test_stepper(host):
     QTest.mouseClick(s.plus, Qt.LeftButton)
     pump(700)
     assert s.value() == 6 and committed == [6] and s.edit.text() == "6 px"
+
+
+def test_run_bg_always_delivers():
+    import gc
+    from localflow.ui.widgets import run_bg
+    got = []
+    for i in range(40):
+        run_bg(lambda i=i: (time.sleep(0.002), i)[1], lambda res, err: got.append(res))
+    end = time.monotonic() + 5
+    while len(got) < 40 and time.monotonic() < end:
+        gc.collect()
+        app.processEvents()
+        time.sleep(0.01)
+    assert sorted(got) == list(range(40))

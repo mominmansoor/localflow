@@ -900,9 +900,19 @@ _keep: set = set()
 
 
 def run_bg(fn, on_done) -> None:
-    """Run fn() in a thread, deliver (result, error) to on_done on the Qt thread."""
+    """Run fn() in a thread, deliver (result, error) to on_done on the Qt thread.
+
+    The relay object must stay alive until the queued result has been delivered on
+    the Qt thread; releasing it from the worker thread (as an earlier version did)
+    let Python delete it first, silently dropping the result.
+    """
     relay = _Relay()
-    relay.done.connect(on_done)
+
+    def deliver(res, err):
+        _keep.discard(relay)
+        on_done(res, err)
+
+    relay.done.connect(deliver, Qt.QueuedConnection)
     _keep.add(relay)
 
     def work():
@@ -911,7 +921,6 @@ def run_bg(fn, on_done) -> None:
         except Exception as e:  # noqa: BLE001
             res, err = None, e
         relay.done.emit(res, err)
-        _keep.discard(relay)
 
     threading.Thread(target=work, daemon=True).start()
 
