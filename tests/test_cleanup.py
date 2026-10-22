@@ -193,3 +193,38 @@ def test_same_model():
     assert cleanup.same_model("llama3.1:8b", "llama3.1:8b")
     assert cleanup.same_model("mistral:latest", "mistral")
     assert not cleanup.same_model("qwen3:4b", "qwen3:4b-instruct")
+
+
+@pytest.mark.parametrize("source, out", [
+    ("Hmm, okay, yeah, sure.", "Nothing to fix here."),
+    ("uh yeah so okay", "No changes needed."),
+    ("Testing testing one two", "The text is already clean as is."),
+    ("mm hmm right yeah", "There's nothing to clean up in this transcript."),
+    ("so yeah okay cool", "I can't see any speech to clean."),
+    ("um okay so yeah", "It looks like you were testing the microphone."),   # invented words
+])
+def test_guard_rejects_commentary_on_short_input(source, out):
+    assert guard(source, out) is None
+
+
+@pytest.mark.parametrize("source, out", [
+    ("sounds good", "Sounds good."),
+    ("okay yeah that works for me", "Okay, yeah, that works for me."),
+    ("there's nothing to fix in the code", "There's nothing to fix in the code."),   # user actually said it
+    ("first milk second eggs", "1. Milk\n2. Eggs"),
+    ("we should ship on friday no wait monday", "We should ship on Monday."),
+])
+def test_guard_keeps_real_cleanups(source, out):
+    assert guard(source, out) is not None
+
+
+def test_noise_falls_back_to_what_was_said(settings):
+    _Fake.reply = "Nothing to fix here."
+    r = pipeline.process("Okay, yeah, sounds good then.", settings.effective())
+    assert r.text == "Okay, yeah, sounds good then." and r.info["llm"] == "rejected"
+    assert "NEVER reply with a remark" in _Fake.seen[-1]["messages"][0]["content"]
+
+
+def test_pure_filler_produces_nothing(settings):
+    r = pipeline.process("Um. Uh. Hmm.", settings.effective())
+    assert r.text == ""

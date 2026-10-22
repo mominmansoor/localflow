@@ -343,6 +343,11 @@ class LocalFlow:
             return
 
         text = r.text
+        if not text.strip():                 # it was only a noise or filler: paste nothing
+            log.info("nothing to insert after cleanup (heard %r)", raw)
+            if not self.recorder.recording:
+                self._set_state("idle")
+            return
         if g("delivery.add_trailing_space") and text and text[-1] in ".!?,:;":
             text += " "
         method = g("delivery.method")

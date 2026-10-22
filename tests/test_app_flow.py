@@ -143,3 +143,9 @@ def test_translate_flag_passed(lf):
     lf.stt = STT("")
     run(lf, [("start", "dictate"), ("stop", "dictate")])
     assert seen["translate"] is True
+
+
+def test_noise_pastes_nothing(lf):
+    lf.stt = FakeSTT("Um. Uh. Hmm.")
+    run(lf, [("start", "dictate"), ("stop", "dictate")])
+    assert lf.sent == []
