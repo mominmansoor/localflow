@@ -234,6 +234,10 @@ def test_pure_filler_produces_nothing(settings):
     ("what's the capital of france", "The capital of France is Paris."),
     ("what's two plus two", "Two plus two is four."),
     ("um who wrote hamlet", "Shakespeare wrote Hamlet."),
+    ("Name an aquatic animal.", "Dolphin."),
+    ("name a sea mammal", "Whale"),
+    ("give me three colors", "Red, blue, green."),
+    ("translate hello into spanish", "Hola."),
 ])
 def test_guard_rejects_answered_questions(source, out):
     assert guard(source, out) is None
@@ -243,6 +247,10 @@ def test_guard_rejects_answered_questions(source, out):
     ("what's the capital of france", "What's the capital of France?"),
     ("what I want to do is ship it", "What I want to do is ship it."),
     ("how many legs does a spider have", "How many legs does a spider have?"),
+    ("Name an aquatic animal.", "Name an aquatic animal."),
+    ("um give me like three colors", "Give me three colors."),
+    ("translate hello into spanish", 'Translate "hello" into Spanish.'),
+    ("so in app dot tsx the use state hook is broken", "In app.tsx, the useState hook is broken."),
 ])
 def test_guard_keeps_cleaned_questions(source, out):
     assert guard(source, out) is not None

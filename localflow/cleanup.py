@@ -86,6 +86,7 @@ FEW_SHOT_MEDIUM = [
     ("um so can you uh write me a function that like reverses a string",
      "So can you write me a function that reverses a string?"),
     ("what's the weather like in london", "What's the weather like in London?"),
+    ("name a fruit that's red", "Name a fruit that's red."),
     ("let's meet on tuesday at 3 no wait actually wednesday at 3",
      "Let's meet on Wednesday at 3."),
     ("oh wait I just want to let you know that I like football oh wait I like tennis",
@@ -176,14 +177,17 @@ def _mostly_from(source: str, out: str) -> bool:
     return hit / len(words) >= 0.6
 
 
-_QUESTION = re.compile(r"(?i)^\W*(?:(?:um+|uh+|so|okay|ok|hey|and|but)\W+)*(?:what|what's|whats|who|who's|where|"
-                       r"when|why|how|which|is|are|can|could|does|do|did|should|will|would)\b")
+_ASKS = re.compile(
+    r"(?i)^\W*(?:(?:um+|uh+|so|okay|ok|hey|and|but|now|please|can you|could you)\W+)*"
+    r"(?:what|what's|whats|who|who's|where|when|why|how|which|is|are|can|could|does|do|did|should|will|would"
+    r"|name|list|give|tell|write|say|spell|translate|explain|describe|define|summari[sz]e|calculate|solve"
+    r"|count|pick|choose|guess|suggest|recommend|find|show|make|generate|compose|rhyme)\b")
 
 
 def _answered(source: str, out: str) -> bool:
-    """A short spoken question came back as a statement with new words in it: the
-    model answered it instead of cleaning it (small models do this now and then)."""
-    if word_count(source) > 15 or "?" in out or not _QUESTION.match(source):
+    """A short spoken question or request ("name a sea mammal") came back with new
+    words in it: the model answered it instead of cleaning it."""
+    if word_count(source) > 15 or "?" in out or not _ASKS.match(source):
         return False
     src = set(_WORD.findall(source.lower()))
     new = [w for w in _WORD.findall(out.lower()) if w not in src and w.rstrip("s") not in src

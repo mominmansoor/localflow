@@ -102,9 +102,11 @@ def test_headset_missing_then_returns_switches_back(env):
     rec.open()
     assert sd.opened[-1] is None                       # recording from the default for now
 
+    rec._last_cb = 100.0
     rec.watch_once(now=100.0)                          # headset still asleep: one cheap check, no rescan
     assert calls["live"] == 1 and sd.inits == 0 and rec.fallback
 
+    rec._last_cb = 101.5
     rec.watch_once(now=101.5)                          # within 5 s: doesn't even check
     assert calls["live"] == 1
 
