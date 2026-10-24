@@ -35,6 +35,7 @@ class FakeSD(types.ModuleType):
         self.present = [WEBCAM]          # what's physically plugged in
         self.snapshot = list(self.present)
         self.opened, self.inits = [], 0
+        self.default = None              # Windows' default input (None = first device)
 
     def _initialize(self):
         self.inits += 1
@@ -51,6 +52,9 @@ class FakeSD(types.ModuleType):
         for n in self.snapshot:
             devs.append({"name": n[:31], "max_input_channels": 1, "hostapi": 0, "default_samplerate": 16000})
             devs.append({"name": n, "max_input_channels": 1, "hostapi": 1, "default_samplerate": 48000})
+        if device is None and kind == "input":
+            name = self.default or (self.snapshot[0] if self.snapshot else None)
+            return next(d for d in devs if d["name"] == name)
         return devs[device] if device is not None else devs
 
     def InputStream(self, device=None, callback=None, **kw):
@@ -171,3 +175,60 @@ def test_system_default_never_polls(env):
     rec._last_cb = 30.0
     rec.watch_once(now=30.0)
     assert not rec.fallback and calls["live"] == 0
+
+
+CABLE = "CABLE Output (VB-Audio Virtual Cable)"
+
+
+def test_is_virtual():
+    assert audio.is_virtual(CABLE) and audio.is_virtual("Voicemeeter Out B1 (VB-Audio Voicemeeter VAIO)")
+    assert audio.is_virtual("Stereo Mix (Realtek(R) Audio)")
+    assert not audio.is_virtual(HEADSET_FULL) and not audio.is_virtual(WEBCAM)
+
+
+def test_fallback_skips_vb_cable_when_windows_makes_it_default(env):
+    sd, _ = env
+    sd.present = sd.snapshot = [CABLE, WEBCAM]
+    sd.default = CABLE                                  # headset asleep, Windows promoted the cable
+    rec = audio.Recorder(HEADSET_FULL)
+    rec.open()
+    assert rec.fallback and sd.query_devices()[sd.opened[-1]]["name"] == WEBCAM
+
+
+def test_fallback_keeps_real_default(env):
+    sd, _ = env
+    sd.present = sd.snapshot = [CABLE, WEBCAM]
+    sd.default = WEBCAM
+    rec = audio.Recorder(HEADSET_FULL)
+    rec.open()
+    assert sd.opened[-1] is None                        # plain system default
+
+
+def test_only_a_cable_left_still_records(env):
+    sd, _ = env
+    sd.present = sd.snapshot = [CABLE]
+    sd.default = CABLE
+    rec = audio.Recorder(HEADSET_FULL)
+    rec.open()
+    assert sd.opened[-1] is None
+
+
+def test_cable_can_still_be_chosen_on_purpose(env):
+    sd, _ = env
+    sd.present = sd.snapshot = [CABLE, WEBCAM]
+    sd.default = WEBCAM
+    rec = audio.Recorder(CABLE)
+    rec.open()
+    assert not rec.fallback and sd.query_devices()[sd.opened[-1]]["name"].startswith("CABLE Output")
+
+
+def test_cable_returning_headset_switches_back(env):
+    sd, _ = env
+    sd.present = sd.snapshot = [CABLE]
+    sd.default = CABLE
+    rec = audio.Recorder(HEADSET_FULL)
+    rec.open()
+    sd.present = [CABLE, HEADSET_FULL]
+    rec._last_cb = 10.0
+    rec.watch_once(now=10.0)
+    assert not rec.fallback and sd.query_devices()[sd.opened[-1]]["name"].startswith("Microphone (HyperX")

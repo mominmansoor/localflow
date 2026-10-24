@@ -85,6 +85,7 @@ FEW_SHOT_MEDIUM = [
     ("okay yeah that works for me", "Okay, yeah, that works for me."),
     ("um so can you uh write me a function that like reverses a string",
      "So can you write me a function that reverses a string?"),
+    ("what's the weather like in london", "What's the weather like in London?"),
     ("let's meet on tuesday at 3 no wait actually wednesday at 3",
      "Let's meet on Wednesday at 3."),
     ("oh wait I just want to let you know that I like football oh wait I like tennis",
@@ -147,6 +148,8 @@ def guard(source: str, out: str) -> str | None:
         return None          # a remark about the text ("Nothing to fix here"), not the text
     if not _mostly_from(source, out):
         return None
+    if _answered(source, out):
+        return None          # "what's two plus two" -> "Two plus two is four."
     return out
 
 
@@ -171,6 +174,21 @@ def _mostly_from(source: str, out: str) -> bool:
         return True
     hit = sum(1 for w in words if w in src or w.rstrip("s") in src or w + "s" in src or w.strip("'") in src)
     return hit / len(words) >= 0.6
+
+
+_QUESTION = re.compile(r"(?i)^\W*(?:(?:um+|uh+|so|okay|ok|hey|and|but)\W+)*(?:what|what's|whats|who|who's|where|"
+                       r"when|why|how|which|is|are|can|could|does|do|did|should|will|would)\b")
+
+
+def _answered(source: str, out: str) -> bool:
+    """A short spoken question came back as a statement with new words in it: the
+    model answered it instead of cleaning it (small models do this now and then)."""
+    if word_count(source) > 15 or "?" in out or not _QUESTION.match(source):
+        return False
+    src = set(_WORD.findall(source.lower()))
+    new = [w for w in _WORD.findall(out.lower()) if w not in src and w.rstrip("s") not in src
+           and w + "s" not in src]
+    return bool(new)
 
 
 # ---------------------------------------------------------------------------

@@ -111,6 +111,38 @@ def _resolve_device(dev):
     return None
 
 
+_VIRTUAL = ("cable output", "vb-audio", "voicemeeter", "virtual", "stereo mix", "what u hear",
+            "wave out", "steam streaming", "obs-", "loopback", "voicemod", "blackhole")
+
+
+def is_virtual(name: str | None) -> bool:
+    """Voice-changer / routing cables and loopbacks: never someone's real mic."""
+    n = (name or "").lower()
+    return any(v in n for v in _VIRTUAL)
+
+
+def fallback_device():
+    """What to record from when the chosen mic is missing: the system default, unless
+    that's a virtual cable (Windows often promotes VB-Cable to default when a wireless
+    headset sleeps). Then the first real mic, or the default if there's no other."""
+    try:
+        import sounddevice as sd
+        default = sd.query_devices(kind="input")["name"]
+    except Exception:
+        default = None
+    if default and not is_virtual(default):
+        return None
+    try:
+        real = [(i, n) for i, n in list_input_devices() if not is_virtual(n)]
+    except Exception:
+        real = []
+    if not real:
+        return None
+    real.sort(key=lambda d: "microphone" not in d[1].lower())
+    log.info("Default input %r is virtual; falling back to %r", default, real[0][1])
+    return real[0][0]
+
+
 def rms_db(x: np.ndarray) -> float:
     return 20 * np.log10(float(np.sqrt(np.mean(x * x))) + 1e-9)
 
@@ -199,6 +231,8 @@ class Recorder:
         self.device = _resolve_device(self.device_spec)
         was = self.fallback
         self.fallback = bool(self.device_spec) and self.device is None
+        if self.device is None:
+            self.device = fallback_device()
         if self.fallback and (announce or not was):
             log.warning("Mic %r not found, using default", self.device_spec)
             self._status("Your mic isn't connected, using the default for now", True)
@@ -291,7 +325,10 @@ class Recorder:
             if not self._safe_open() and self.device is not None:
                 self.device = None          # chosen mic is listed but won't open: use the default
                 self.fallback = bool(self.device_spec)
-                self._safe_open()
+                self.device = fallback_device()
+                if not self._safe_open() and self.device is not None:
+                    self.device = None
+                    self._safe_open()
             if was_fallback and not self.fallback:
                 self._status("Mic reconnected")
 
