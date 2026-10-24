@@ -74,8 +74,10 @@ class LocalFlow:
         config.DATA_DIR.mkdir(exist_ok=True)
         self.history = History(config.DATA_DIR / "history.db")
         g = self.s.get
+        self._upgrade_mic_name()
         self.recorder = Recorder(g("audio.mic_device"), g("audio.keep_mic_open"), g("audio.preroll_ms"),
-                                 on_level=self.bridge.level.emit)
+                                 on_level=self.bridge.level.emit,
+                                 on_status=lambda text, err: self.bridge.message.emit(text[:60], err))
         self.stt = Transcriber(self.s.get)
         self.machine = hotkey.HotkeyMachine({}, is_down=hotkey.win_is_down if sys.platform == "win32" else None)
         self._configure_hotkeys()
@@ -96,6 +98,18 @@ class LocalFlow:
     # =======================================================================
     # settings
     # =======================================================================
+    def _upgrade_mic_name(self):
+        """Older versions saved Windows' cut-off mic name; store the full one when we can."""
+        from .audio import full_name
+        spec = self.s.get("audio.mic_device")
+        try:
+            full = full_name(spec)
+        except Exception:
+            full = None
+        if full and full != spec:
+            log.info("mic name %r -> %r", spec, full)
+            self.s.set("audio.mic_device", full)
+
     def _configure_hotkeys(self):
         g = self.s.get
         self.machine.configure(
@@ -626,7 +640,10 @@ class LocalFlow:
         self._code_timer.start(2000)
         self.listener.start()
         self.overlay.set_state("idle")
-        self.overlay.show_message(f"LocalFlow is on · hold {g('hotkeys.dictate')} to dictate", error=False, ms=3500)
+        if self.recorder.fallback:
+            self.overlay.show_message("Your mic isn't connected, using the default for now", error=True, ms=4000)
+        else:
+            self.overlay.show_message(f"LocalFlow is on · hold {g('hotkeys.dictate')} to dictate", error=False, ms=3500)
         log.info("LocalFlow running. Dictate: %s", g("hotkeys.dictate"))
         code = app.exec()
         self.listener.stop()
