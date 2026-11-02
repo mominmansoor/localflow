@@ -184,7 +184,6 @@ class Overlay(QWidget):
         self._copy_timer.stop()
         self._set_clickable(False)
         self._hover = None
-        self.unsetCursor()
 
     def _copy(self) -> None:
         if self.state != "copy":
@@ -365,6 +364,23 @@ class Overlay(QWidget):
         p.drawText(self._copy_btn, Qt.AlignCenter, label)
 
     # -- mouse (copy card only) ------------------------------------------------
+    def nativeEvent(self, event_type, message):
+        """Answer WM_SETCURSOR ourselves: arrow over the card, hand over its buttons.
+        Left to defaults, Windows shows the 'app starting' spinner over this window."""
+        if sys.platform == "win32" and self._clickable:
+            import ctypes
+            from ctypes import wintypes
+            msg = wintypes.MSG.from_address(int(message))
+            if msg.message == 0x0020:                                   # WM_SETCURSOR
+                hit = self._hit(self.mapFromGlobal(QCursor.pos()).toPointF())
+                u = ctypes.windll.user32
+                u.LoadCursorW.restype = ctypes.c_void_p
+                u.LoadCursorW.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+                u.SetCursor.argtypes = [ctypes.c_void_p]
+                u.SetCursor(u.LoadCursorW(None, 32649 if hit in ("copy", "close") else 32512))  # IDC_HAND / IDC_ARROW
+                return True, 1
+        return super().nativeEvent(event_type, message)
+
     def _hit(self, pos) -> str | None:
         if self.state != "copy":
             return None
@@ -380,7 +396,6 @@ class Overlay(QWidget):
         hit = self._hit(e.position())
         if hit != self._hover:
             self._hover = hit
-            self.setCursor(Qt.PointingHandCursor if hit in ("copy", "close") else Qt.ArrowCursor)
             if hit:
                 self._copy_timer.stop()            # reading it: stay open
             elif self.state == "copy":
