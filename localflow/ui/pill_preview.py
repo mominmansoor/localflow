@@ -16,6 +16,8 @@ from PySide6.QtWidgets import QWidget
 from ..overlay import WIN_H, WIN_W, Overlay
 from . import theme as T
 
+PILL_ZONE = 64            # bottom strip of the overlay where the pill lives
+
 DEMO = "Hey team, quick update on the launch plan for Friday".split()
 
 
@@ -39,7 +41,7 @@ class _Pill(Overlay):
 class PillPreview(QWidget):
     def __init__(self, show_idle: bool, live_preview: bool, parent=None):
         super().__init__(parent)
-        self.setFixedHeight(WIN_H + 34)
+        self.setFixedHeight(PILL_ZONE + 34)
         self.setMinimumWidth(360)
         self.pill = _Pill(self)
         self.pill.show_idle = show_idle
@@ -74,7 +76,7 @@ class PillPreview(QWidget):
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
-        self.pill.move((self.width() - WIN_W) // 2, 6)
+        self.pill.move((self.width() - WIN_W) // 2, 6 - (WIN_H - PILL_ZONE))   # only the pill's strip shows
 
     def _go(self, phase):
         self.phase, self.t_phase = phase, time.monotonic()

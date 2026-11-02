@@ -108,17 +108,42 @@ def test_run_bg_always_delivers():
     assert sorted(got) == list(range(40))
 
 
-def test_copy_box_shows_copies_and_never_takes_focus():
+def test_copy_card_grows_from_pill_copies_and_closes():
     from PySide6.QtGui import QGuiApplication
-    from localflow.ui.fallback import FallbackWindow
-    w = FallbackWindow()
-    w.show_text("Line one of a dictation that is fairly long and should wrap onto a second line in the box.")
-    pump(250)
-    assert w.isVisible() and w.testAttribute(Qt.WA_ShowWithoutActivating)
-    assert QGuiApplication.clipboard().text().startswith("Line one")
+    from localflow.overlay import Overlay
+    ov = Overlay(True, 16)
+    ov.set_state("idle")
+    pump(300)
+    assert ov.h < 10                                        # a thin idle pill
+    ov.show_copy("Remember to buy milk and eggs on the way home.")
+    assert QGuiApplication.clipboard().text().startswith("Remember")
+    assert not ov.testAttribute(Qt.WA_TransparentForMouseEvents)   # clickable only now
+    pump(600)
+    assert ov.w > 380 and ov.h > 80                          # grew into the card
+    ov.set_state("done")                                    # end of processing must not close it
+    ov.set_state("idle")
+    assert ov.copy_open
     QGuiApplication.clipboard().setText("something else")
-    QTest.mouseClick(w.copy_btn, Qt.LeftButton)
-    assert QGuiApplication.clipboard().text().startswith("Line one") and w.copy_btn.text() == "Copied"
-    w.dismiss()
-    pump(400)
-    assert not w.isVisible()
+    ov.ctrl_c.emit()
+    assert QGuiApplication.clipboard().text().startswith("Remember") and ov._copied_again
+    ov.close_copy()
+    pump(600)
+    assert not ov.copy_open and ov.h < 10 and ov.testAttribute(Qt.WA_TransparentForMouseEvents)
+
+
+def test_copy_card_new_dictation_takes_over():
+    from localflow.overlay import Overlay
+    ov = Overlay(True, 16)
+    ov.show_copy("old text")
+    ov.set_state("listening")
+    assert not ov.copy_open and ov.testAttribute(Qt.WA_TransparentForMouseEvents)
+
+
+def test_copy_card_height_is_capped():
+    from PySide6.QtGui import QFont, QFontMetrics
+    from localflow.overlay import COPY_LINES, wrap_lines
+    fm = QFontMetrics(QFont("Segoe UI", 10))
+    long = " ".join(["dictation"] * 300)
+    lines = wrap_lines(long, fm, 368, COPY_LINES)
+    assert len(lines) == COPY_LINES and lines[-1].endswith("\u2026")
+    assert wrap_lines("short one", fm, 368, COPY_LINES) == ["short one"]

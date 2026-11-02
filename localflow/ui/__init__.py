@@ -1,1 +1,1 @@
-"""Settings app, fallback window and shared widgets."""
+"""Settings app and shared widgets."""

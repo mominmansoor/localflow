@@ -458,10 +458,12 @@ class LocalFlow:
         self.settings_window.activateWindow()
 
     def _show_fallback(self, text: str):
-        from .ui.fallback import FallbackWindow
-        if not hasattr(self, "_fallback"):
-            self._fallback = FallbackWindow()
-        self._fallback.show_text(text)
+        self.overlay.show_copy(text)          # the pill grows into the copy card
+
+    def _on_key(self, k: str | None) -> None:
+        """Keyboard-hook thread: Ctrl+C while the copy card is up copies the dictation."""
+        if k == "c" and self.overlay.copy_open and hotkey.win_is_down("ctrl"):
+            self.overlay.ctrl_c.emit()
 
     def _set_paused(self, paused: bool):
         self.overlay.set_paused(paused)
@@ -613,6 +615,7 @@ class LocalFlow:
         b.message.connect(lambda t, err: self.overlay.show_message(t, err))
         b.paused.connect(self._set_paused)
         b.fallback.connect(self._show_fallback)
+        self.listener.on_key = self._on_key
 
         self.tray = QSystemTrayIcon(_tray_icon())
         self.tray.setToolTip("LocalFlow - loading Whisper…")

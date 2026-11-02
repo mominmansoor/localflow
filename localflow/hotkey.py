@@ -222,6 +222,7 @@ class HotkeyListener:
     def __init__(self, machine: HotkeyMachine, on_events: Callable[[list], None]):
         self.m = machine
         self.on_events = on_events
+        self.on_key = None              # optional: called with every key press (must be instant)
         self._listener = None
 
     def start(self) -> None:
@@ -239,7 +240,13 @@ class HotkeyListener:
 
     # Runs inside the OS hook: must return instantly.
     def _on_press(self, key):
-        ev = self.m.press(normalize_key(key), time.monotonic())
+        k = normalize_key(key)
+        if self.on_key:
+            try:
+                self.on_key(k)
+            except Exception:
+                pass
+        ev = self.m.press(k, time.monotonic())
         if ev:
             self.on_events(ev)
 
