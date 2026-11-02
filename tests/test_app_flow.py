@@ -149,3 +149,35 @@ def test_noise_pastes_nothing(lf):
     lf.stt = FakeSTT("Um. Uh. Hmm.")
     run(lf, [("start", "dictate"), ("stop", "dictate")])
     assert lf.sent == []
+
+
+def _copybox(lf, monkeypatch, focus, desktop=False):
+    shown, clip = [], []
+    lf.bridge.fallback.connect(shown.append)
+    monkeypatch.setattr(winapi, "text_focus", lambda hwnd=None: focus)
+    monkeypatch.setattr(winapi, "no_text_target", lambda hwnd=None: desktop)
+    monkeypatch.setattr(delivery, "clip_set", lambda t: clip.append(t) or True)
+    lf.stt = FakeSTT("Remember to buy milk.")
+    run(lf, [("start", "dictate"), ("stop", "dictate")])
+    return shown, clip
+
+
+def test_in_a_text_box_just_pastes(lf, monkeypatch):
+    shown, clip = _copybox(lf, monkeypatch, ("text", "Chrome_WidgetWin_1 uia 50004"))
+    assert lf.sent == ["Remember to buy milk. "] and shown == [] and clip == []
+
+
+def test_clicked_outside_a_text_box_shows_copy_box(lf, monkeypatch):
+    shown, clip = _copybox(lf, monkeypatch, ("none", "Chrome_WidgetWin_1 uia 50030"))
+    assert lf.sent == ["Remember to buy milk. "]          # still tried, in case we guessed wrong
+    assert shown == ["Remember to buy milk. "] and clip[-1] == "Remember to buy milk. "
+
+
+def test_desktop_skips_paste_and_shows_copy_box(lf, monkeypatch):
+    shown, clip = _copybox(lf, monkeypatch, ("none", "Progman"), desktop=True)
+    assert lf.sent == [] and shown == ["Remember to buy milk. "] and clip == ["Remember to buy milk. "]
+
+
+def test_unknown_focus_behaves_like_before(lf, monkeypatch):
+    shown, _ = _copybox(lf, monkeypatch, ("unknown", "uia n/a"))
+    assert lf.sent == ["Remember to buy milk. "] and shown == []

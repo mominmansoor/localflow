@@ -254,3 +254,24 @@ def test_guard_rejects_answered_questions(source, out):
 ])
 def test_guard_keeps_cleaned_questions(source, out):
     assert guard(source, out) is not None
+
+
+def test_guard_rejects_made_up_numbers():
+    src = "How long is an average USB? The front end of a USB Type-A and its entire dimensions basically."
+    out = ("How long is an average USB? The front end of a USB Type-A is about 12 millimeters, "
+           "and its entire dimensions are basically 18 millimeters.")
+    assert guard(src, out) is None
+
+
+@pytest.mark.parametrize("source, out", [
+    ("the box is 70 millimeters long", "The box is 70 millimeters long."),
+    ("meet me at five thirty", "Meet me at 5:30."),
+    ("I need twenty five copies", "I need 25 copies."),
+    ("version two is better", "Version 2 is better."),
+    ("we have two hundred students", "We have 200 students."),
+    ("first milk second eggs", "1. Milk\n2. Eggs"),
+    ("it costs three point five dollars", "It costs 3.5 dollars."),
+    ("um the year twenty twenty six", "The year 2026."),
+])
+def test_guard_keeps_spoken_numbers(source, out):
+    assert guard(source, out) is not None

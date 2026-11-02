@@ -151,6 +151,8 @@ def guard(source: str, out: str) -> str | None:
         return None
     if _answered(source, out):
         return None          # "what's two plus two" -> "Two plus two is four."
+    if _new_numbers(source, out):
+        return None          # "how long is a USB" -> "...about 12 millimeters" (made-up facts)
     return out
 
 
@@ -175,6 +177,66 @@ def _mostly_from(source: str, out: str) -> bool:
         return True
     hit = sum(1 for w in words if w in src or w.rstrip("s") in src or w + "s" in src or w.strip("'") in src)
     return hit / len(words) >= 0.6
+
+
+_UNITS = {"zero": 0, "oh": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+          "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14,
+          "fifteen": 15, "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19, "a": 1, "an": 1,
+          "first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5, "sixth": 6, "seventh": 7, "eighth": 8,
+          "ninth": 9, "tenth": 10, "half": 5, "quarter": 25}
+_TENS = {"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90}
+_SCALES = {"hundred": 100, "thousand": 1000, "million": 10 ** 6, "billion": 10 ** 9, "k": 1000}
+_NUM = re.compile(r"\d+(?:[.,]\d+)*")
+_LIST_MARK = re.compile(r"(?m)^\s*\d+[.)]\s")
+
+
+def _spoken_numbers(text: str) -> set[str]:
+    """Every number the speaker said, as digits ("twenty five" -> 25, "two hundred" -> 200)."""
+    words = re.findall(r"[a-z]+|\d+(?:[.,]\d+)*", text.lower())
+    vals: set[int] = set()
+    digits = set()
+    cur = base = None
+    for w in words + ["."]:
+        if w[0].isdigit():
+            digits.add(w.replace(",", ""))
+            for part in re.split(r"[.,]", w):
+                digits.add(part.lstrip("0") or "0")
+            cur = base = None
+            continue
+        if w in _UNITS:
+            n = _UNITS[w]
+            cur = (cur or 0) + n if cur and cur % 10 == 0 and cur >= 20 and n < 10 else n
+        elif w in _TENS:
+            if cur and 10 <= cur < 100:          # "twenty twenty six" -> 2026, "nineteen ninety" -> 1990
+                base, cur = cur * 100, _TENS[w]
+            else:
+                cur = _TENS[w] if not cur or cur < 100 else cur + _TENS[w]
+        elif w in _SCALES and cur is not None:
+            cur *= _SCALES[w]
+        elif w in _SCALES:
+            cur = _SCALES[w]
+        else:
+            cur = base = None
+        if cur is not None:
+            vals.add(cur)
+            if base:
+                vals.add(base + cur)
+            vals.update({cur % 100, cur % 1000})
+    return digits | {str(v) for v in vals}
+
+
+def _new_numbers(source: str, out: str) -> bool:
+    """The output contains a number nobody said: the model supplied a fact."""
+    found = _NUM.findall(_LIST_MARK.sub("", out))
+    if not found:
+        return False
+    said = _spoken_numbers(source)
+    for n in found:
+        n = n.replace(",", "")
+        parts = [p.lstrip("0") or "0" for p in re.split(r"[.,:]", n)]
+        if n not in said and not all(p in said for p in parts):
+            return True
+    return False
 
 
 _ASKS = re.compile(

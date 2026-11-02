@@ -106,3 +106,19 @@ def test_run_bg_always_delivers():
         app.processEvents()
         time.sleep(0.01)
     assert sorted(got) == list(range(40))
+
+
+def test_copy_box_shows_copies_and_never_takes_focus():
+    from PySide6.QtGui import QGuiApplication
+    from localflow.ui.fallback import FallbackWindow
+    w = FallbackWindow()
+    w.show_text("Line one of a dictation that is fairly long and should wrap onto a second line in the box.")
+    pump(250)
+    assert w.isVisible() and w.testAttribute(Qt.WA_ShowWithoutActivating)
+    assert QGuiApplication.clipboard().text().startswith("Line one")
+    QGuiApplication.clipboard().setText("something else")
+    QTest.mouseClick(w.copy_btn, Qt.LeftButton)
+    assert QGuiApplication.clipboard().text().startswith("Line one") and w.copy_btn.text() == "Copied"
+    w.dismiss()
+    pump(400)
+    assert not w.isVisible()

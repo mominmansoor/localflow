@@ -365,7 +365,15 @@ class LocalFlow:
         if g("delivery.add_trailing_space") and text and text[-1] in ".!?,:;":
             text += " "
         method = g("delivery.method")
-        if method == "copy" or (g("delivery.fallback_window") and winapi.no_text_target()):
+        focus, detail = winapi.text_focus() if g("delivery.fallback_window") else ("unknown", "")
+        log.info("focus: %s (%s)", focus, detail)
+        if method == "copy" or (focus == "none" and winapi.no_text_target()):
+            delivery.clip_set(text)                     # desktop / taskbar: nowhere to paste at all
+            self.bridge.fallback.emit(text)
+        elif focus == "none":
+            # Probably clicked outside a text box. Paste anyway (harmless if there's no box,
+            # and right if we guessed wrong), but keep it on the clipboard and show the copy box.
+            delivery.insert_text(text, method, False, False)
             delivery.clip_set(text)
             self.bridge.fallback.emit(text)
         else:

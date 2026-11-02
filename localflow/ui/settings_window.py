@@ -597,7 +597,7 @@ class SettingsWindow(QWidget):
                         self._toggle("delivery.restore_clipboard")))
         l.addWidget(row("Add a space after sentences", "So back-to-back dictations flow.",
                         self._toggle("delivery.add_trailing_space")))
-        l.addWidget(row("Fallback window", "If no text field has focus, show the text in a small window instead.",
+        l.addWidget(row("Copy box", "If you weren't in a text box, show what you said in a small box with a Copy button (it's also put on the clipboard).",
                         self._toggle("delivery.fallback_window")))
         v.addWidget(c)
 

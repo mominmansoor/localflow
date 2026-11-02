@@ -56,6 +56,107 @@ def no_text_target(hwnd: int | None = None) -> bool:
     return not hwnd or window_class(hwnd) in _NO_FOCUS_CLASSES
 
 
+# --- what has keyboard focus? ---------------------------------------------------
+# UI Automation control types (UIAutomationClient.h)
+UIA_EDIT, UIA_COMBOBOX, UIA_DOCUMENT = 50004, 50003, 50030
+_TERMINAL_CLASSES = {"ConsoleWindowClass", "CASCADIA_HOSTING_WINDOW_CLASS", "mintty", "PuTTY",
+                     "VirtualConsoleClass"}
+_uia_local = None
+
+
+def _caret_hwnd(hwnd: int) -> int:
+    """The window showing a blinking text caret in that app's UI thread, if any."""
+    import ctypes
+    from ctypes import wintypes
+
+    class GUITHREADINFO(ctypes.Structure):
+        _fields_ = [("cbSize", wintypes.DWORD), ("flags", wintypes.DWORD), ("hwndActive", wintypes.HWND),
+                    ("hwndFocus", wintypes.HWND), ("hwndCapture", wintypes.HWND),
+                    ("hwndMenuOwner", wintypes.HWND), ("hwndMoveSize", wintypes.HWND),
+                    ("hwndCaret", wintypes.HWND), ("rcCaret", wintypes.RECT)]
+    tid = ctypes.windll.user32.GetWindowThreadProcessId(hwnd, None)
+    info = GUITHREADINFO(cbSize=ctypes.sizeof(GUITHREADINFO))
+    if not ctypes.windll.user32.GetGUIThreadInfo(tid, ctypes.byref(info)):
+        return 0
+    return info.hwndCaret or 0
+
+
+def _uia():
+    """One IUIAutomation per thread (COM objects are per-apartment), via raw ctypes."""
+    import ctypes
+    import threading
+    global _uia_local
+    if _uia_local is None:
+        _uia_local = threading.local()
+    obj = getattr(_uia_local, "obj", None)
+    if obj:
+        return obj
+    ole32 = ctypes.windll.ole32
+    ole32.CoInitializeEx(None, 0)                       # MTA; harmless if already initialised
+    clsid, iid = (ctypes.c_byte * 16)(), (ctypes.c_byte * 16)()
+    ole32.CLSIDFromString("{ff48dba4-60ef-4201-aa87-54103eef594e}", clsid)   # CUIAutomation
+    ole32.CLSIDFromString("{30cbe57d-d9d0-452a-ab13-7ac5ac4825ee}", iid)     # IUIAutomation
+    ptr = ctypes.c_void_p()
+    if ole32.CoCreateInstance(clsid, None, 1, iid, ctypes.byref(ptr)) != 0 or not ptr.value:
+        return None
+    _uia_local.obj = ptr.value
+    return ptr.value
+
+
+def _vcall(obj: int, index: int, *args):
+    """Call method #index of a COM object's vtable; returns the HRESULT."""
+    import ctypes
+    vtbl = ctypes.cast(obj, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p)))[0]
+    fn = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, *[type(a) for a in args])(vtbl[index])
+    return fn(obj, *args)
+
+
+def _focused_control_type() -> int | None:
+    import ctypes
+    uia = _uia()
+    if not uia:
+        return None
+    el = ctypes.c_void_p()
+    if _vcall(uia, 8, ctypes.byref(el)) != 0 or not el.value:        # IUIAutomation::GetFocusedElement
+        return None
+    try:
+        ct = ctypes.c_int()
+        if _vcall(el.value, 21, ctypes.byref(ct)) != 0:                # IUIAutomationElement::get_CurrentControlType
+            return None
+        return ct.value
+    finally:
+        _vcall(el.value, 2)                                            # Release
+
+
+def text_focus(hwnd: int | None = None) -> tuple[str, str]:
+    """('text' | 'none' | 'unknown', detail). 'none' = we're confident there's no text
+    field to type into (desktop, a web page clicked outside its boxes, a button...)."""
+    if not WIN:
+        return "unknown", ""
+    hwnd = hwnd or foreground_hwnd()
+    if not hwnd:
+        return "none", "no window"
+    cls = window_class(hwnd)
+    if cls in _NO_FOCUS_CLASSES:
+        return "none", cls
+    if cls in _TERMINAL_CLASSES:
+        return "text", cls
+    try:
+        if _caret_hwnd(hwnd):
+            return "text", f"{cls} caret"
+    except Exception:
+        pass
+    try:
+        ct = _focused_control_type()
+    except Exception as e:               # ctypes turns access violations into OSError
+        return "unknown", f"{cls} uia error {e}"
+    if ct is None:
+        return "unknown", f"{cls} uia n/a"
+    if ct in (UIA_EDIT, UIA_COMBOBOX):
+        return "text", f"{cls} uia {ct}"
+    return "none", f"{cls} uia {ct}"
+
+
 def set_console_title(text: str) -> None:
     if WIN:
         import ctypes
