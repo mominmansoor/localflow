@@ -58,7 +58,7 @@ def no_text_target(hwnd: int | None = None) -> bool:
 
 # --- what has keyboard focus? ---------------------------------------------------
 # UI Automation control types (UIAutomationClient.h)
-UIA_EDIT, UIA_COMBOBOX, UIA_DOCUMENT = 50004, 50003, 50030
+UIA_EDIT, UIA_COMBOBOX, UIA_DOCUMENT, UIA_PANE = 50004, 50003, 50030, 50033
 _TERMINAL_CLASSES = {"ConsoleWindowClass", "CASCADIA_HOSTING_WINDOW_CLASS", "mintty", "PuTTY",
                      "VirtualConsoleClass"}
 _uia_local = None
@@ -155,6 +155,8 @@ def text_focus(hwnd: int | None = None) -> tuple[str, str]:
         return "unknown", f"{cls} uia n/a"
     if ct in (UIA_EDIT, UIA_COMBOBOX):
         return "text", f"{cls} uia {ct}"
+    if ct == UIA_PANE:          # the window itself: Chromium/Electron without its accessibility tree
+        return "unknown", f"{cls} uia pane"
     return "none", f"{cls} uia {ct}"
 
 
