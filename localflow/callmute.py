@@ -201,7 +201,9 @@ class CallMuter:
         if self._held:
             return
         me = os.getpid()
+        seen = []
         for pid, vol in _capture_sessions():
+            seen.append(_exe(pid))
             if pid in (0, me) or _get_mute(vol):
                 _release(vol)                          # ours, system, or already muted by you
                 continue
@@ -213,6 +215,8 @@ class CallMuter:
             pids = sorted({p for p, _ in self._held})
             self._save(pids)
             log.info("call mute: muted mic for %s", ", ".join(_exe(p) for p in pids))
+        else:
+            log.info("call mute: nothing to mute (recording now: %s)", ", ".join(seen) or "none")
 
     def _do_unmute(self) -> None:
         held, self._held = self._held, []

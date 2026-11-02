@@ -583,6 +583,7 @@ class LocalFlow:
         try:
             self.callmute.shutdown()
             self.listener.stop()
+            self.recorder.keep_open = False          # so the mic watchdog doesn't reopen it
             self.recorder.close()
             if self.api:
                 self.api.stop()
