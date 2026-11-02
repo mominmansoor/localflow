@@ -35,7 +35,16 @@ def foreground_exe(hwnd: int | None = None) -> str | None:
         return None
     pid = wintypes.DWORD()
     ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-    h = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid.value)  # QUERY_LIMITED_INFORMATION
+    return exe_of_pid(pid.value)
+
+
+def exe_of_pid(pid: int) -> str | None:
+    """'discord.exe' for a process id."""
+    if not WIN or not pid:
+        return None
+    import ctypes
+    from ctypes import wintypes
+    h = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)  # QUERY_LIMITED_INFORMATION
     if not h:
         return None
     try:

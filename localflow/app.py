@@ -73,6 +73,8 @@ class LocalFlow:
         self.bridge = Bridge()
         config.DATA_DIR.mkdir(exist_ok=True)
         self.history = History(config.DATA_DIR / "history.db")
+        from .callmute import CallMuter
+        self.callmute = CallMuter(config.DATA_DIR / "muted_apps.json")
         g = self.s.get
         self._upgrade_mic_name()
         self.recorder = Recorder(g("audio.mic_device"), g("audio.keep_mic_open"), g("audio.preroll_ms"),
@@ -229,6 +231,8 @@ class LocalFlow:
                 self.bridge.message.emit(f"Dictation is off in {exe or 'this app'}", False)
                 return
             self.recorder.start()
+            if eff.get("audio.mute_calls"):
+                self.callmute.mute()              # so a call doesn't hear you dictating
             self._set_state("rephrase" if name == "rephrase" else "listening")
             self._arm_max_timer()
             if eff.get("modes.live_preview"):
@@ -262,6 +266,7 @@ class LocalFlow:
             self.jobs.put((audio, sess, False))
 
     def _end_session(self):
+        self.callmute.unmute()
         self._disarm_max_timer()
         if self.session:
             self.session.active = False
@@ -540,7 +545,7 @@ class LocalFlow:
         m.addAction("Diagnostics…", lambda: self.open_settings("Advanced"))
         m.addSeparator()
         m.addAction("Restart LocalFlow", self.restart)
-        m.addAction("Quit LocalFlow", QApplication.instance().quit)
+        m.addAction("Quit LocalFlow", self._quit)
 
     # -- restart (also used automatically when LocalFlow's own files are updated) ----
     def _code_stamp(self) -> float:
@@ -569,9 +574,14 @@ class LocalFlow:
         log.info("LocalFlow files were updated - restarting to load them")
         self.restart()
 
+    def _quit(self):
+        self.callmute.shutdown()
+        QApplication.instance().quit()
+
     def restart(self):
         import subprocess
         try:
+            self.callmute.shutdown()
             self.listener.stop()
             self.recorder.close()
             if self.api:
@@ -615,6 +625,7 @@ class LocalFlow:
         b.message.connect(lambda t, err: self.overlay.show_message(t, err))
         b.paused.connect(self._set_paused)
         b.fallback.connect(self._show_fallback)
+        QApplication.instance().aboutToQuit.connect(self.callmute.shutdown)
         self.listener.on_key = self._on_key
 
         self.tray = QSystemTrayIcon(_tray_icon())

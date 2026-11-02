@@ -72,6 +72,7 @@ DEFAULTS: dict = {
         "max_recording_seconds": 600,
         "whisper_mode": False,
         "noise_suppression": False,
+        "mute_calls": True,              # mute other apps' mic input (calls) while you dictate
     },
     "whisper": {
         "model": "large-v3-turbo",

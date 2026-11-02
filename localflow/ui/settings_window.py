@@ -647,6 +647,8 @@ class SettingsWindow(QWidget):
         l.addWidget(row("Input device", None, self._combo("audio.mic_device", mics, width=300)))
         l.addWidget(row("Keep mic open", "Instant start, and catches the moment before you press. Windows shows the mic icon while LocalFlow runs.",
                         self._toggle("audio.keep_mic_open")))
+        l.addWidget(row("Mute calls while dictating", "Discord, Teams, Zoom, Meet and other apps using your mic can't hear you while you hold the hotkey. They're unmuted the moment you stop.",
+                        self._toggle("audio.mute_calls")))
         l.addWidget(row("Pre-roll", "Audio kept from just before the hotkey.", self._spin("audio.preroll_ms", 0, 1500, 50, " ms")))
         l.addWidget(row("Whisper mode", "Boosts quiet speech so you can dictate softly in a shared room.",
                         self._toggle("audio.whisper_mode")))
