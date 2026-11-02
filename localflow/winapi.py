@@ -104,7 +104,8 @@ def _uia():
 
 
 def _vcall(obj: int, index: int, *args):
-    """Call method #index of a COM object's vtable; returns the HRESULT."""
+    """Call method #index of a COM object's vtable; returns the HRESULT.
+    Pass out-parameters as ctypes.pointer(x) (byref() objects carry no type)."""
     import ctypes
     vtbl = ctypes.cast(obj, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p)))[0]
     fn = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, *[type(a) for a in args])(vtbl[index])
@@ -117,13 +118,13 @@ def _focused_control_type() -> int | None:
     if not uia:
         return None
     el = ctypes.c_void_p()
-    if _vcall(uia, 8, ctypes.byref(el)) != 0 or not el.value:        # IUIAutomation::GetFocusedElement
+    if _vcall(uia, 8, ctypes.pointer(el)) != 0 or not el.value:        # IUIAutomation::GetFocusedElement
         return None
     try:
         ct = ctypes.c_int()
-        if _vcall(el.value, 21, ctypes.byref(ct)) != 0:                # IUIAutomationElement::get_CurrentControlType
+        if _vcall(el.value, 21, ctypes.pointer(ct)) != 0:              # IUIAutomationElement::get_CurrentControlType
             return None
-        return ct.value
+        return ct.value if 50000 <= ct.value <= 50050 else None        # sanity: a real control type id
     finally:
         _vcall(el.value, 2)                                            # Release
 
