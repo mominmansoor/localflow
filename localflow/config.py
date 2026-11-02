@@ -72,7 +72,7 @@ DEFAULTS: dict = {
         "max_recording_seconds": 600,
         "whisper_mode": False,
         "noise_suppression": False,
-        "mute_calls": True,              # mute other apps' mic input (calls) while you dictate
+        "mute_calls": False,             # mute other apps' mic input while you dictate (Windows doesn't honour capture-session mute, so off)
     },
     "whisper": {
         "model": "large-v3-turbo",
