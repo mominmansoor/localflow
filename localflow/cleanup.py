@@ -361,6 +361,69 @@ def installed_models(get) -> list[dict] | None:
     return sorted(out, key=lambda x: x["name"])
 
 
+# ---------------------------------------------------------------------------
+# Starting Ollama
+# ---------------------------------------------------------------------------
+
+_start_lock = __import__("threading").Lock()
+
+
+def ollama_up(get, timeout: float = 1.5) -> bool:
+    try:
+        with urllib.request.urlopen(get("cleanup.ollama_url").rstrip("/") + "/api/version", timeout=timeout):
+            return True
+    except Exception:
+        return False
+
+
+def _ollama_exe() -> str | None:
+    import os
+    import shutil
+    local = os.environ.get("LOCALAPPDATA", "")
+    for path in (os.path.join(local, "Programs", "Ollama", "ollama app.exe"),     # the tray app (you can quit it)
+                 os.path.join(local, "Programs", "Ollama", "ollama.exe"),
+                 shutil.which("ollama")):
+        if path and os.path.exists(path):
+            return path
+    return None
+
+
+def ensure_ollama(get, wait_s: float = 15.0) -> bool:
+    """Start Ollama if it's installed on this PC but not running. Only the server
+    starts - no model is loaded until a dictation needs one. True once it answers."""
+    import subprocess
+    import sys
+    import time
+    if ollama_up(get):
+        return True
+    url = get("cleanup.ollama_url")
+    if not get("cleanup.start_ollama") or not any(h in url for h in ("127.0.0.1", "localhost")):
+        return False
+    with _start_lock:                       # one starter at a time
+        if ollama_up(get):
+            return True
+        exe = _ollama_exe()
+        if not exe:
+            log.info("Ollama isn't installed - can't start it")
+            return False
+        args = [exe] if exe.lower().endswith("ollama app.exe") else [exe, "serve"]
+        flags = (0x00000008 | 0x00000200) if sys.platform == "win32" else 0   # DETACHED | NEW_PROCESS_GROUP
+        try:
+            subprocess.Popen(args, creationflags=flags, close_fds=True, stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError as e:
+            log.info("Couldn't start Ollama: %s", e)
+            return False
+        log.info("Ollama wasn't running - started %s", exe.replace("\\", "/").rsplit("/", 1)[-1])
+        end = time.monotonic() + wait_s
+        while time.monotonic() < end:
+            if ollama_up(get, 1.0):
+                return True
+            time.sleep(0.4)
+        log.info("Ollama didn't answer within %.0fs", wait_s)
+        return False
+
+
 def pick_model(models: list[dict]) -> str | None:
     """Best installed model for cleanup: a known good one, else the smallest real chat model."""
     if not models:
@@ -381,7 +444,7 @@ def resolve_model(get, models: list[dict] | None) -> tuple[str | None, str]:
     """
     want = get("cleanup.llm_model")
     if models is None:
-        return None, "Ollama isn't running - AI cleanup off until it starts"
+        return None, "Ollama isn't running - AI cleanup off for now"
     if not models:
         return None, "No AI models in Ollama - run: ollama pull qwen3:4b-instruct"
     for m in models:

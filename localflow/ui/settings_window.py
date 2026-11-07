@@ -725,6 +725,8 @@ class SettingsWindow(QWidget):
         self.model_status.setObjectName("Faint")
         self.model_status.setWordWrap(True)
         l.addWidget(self.model_status)
+        l.addWidget(row("Start Ollama automatically", "If Ollama isn't running, LocalFlow starts it in the background. "
+                        "The model itself only loads when you dictate.", self._toggle("cleanup.start_ollama")))
         l.addWidget(row("Ollama address", None, self._line("cleanup.ollama_url")))
         l.addWidget(row("Timeout", "Uses the rule-cleaned text if the model takes longer than this.",
                         self._spin("cleanup.llm_timeout_s", 2, 30, 1, " s")))
@@ -761,7 +763,7 @@ class SettingsWindow(QWidget):
             c.addItem(cur or "No model", None)
             c.setEnabled(False)
             self.model_status.setText(
-                "Ollama isn't running. Start Ollama from the Start Menu, then click Refresh."
+                "Ollama isn't running. Turn on Start Ollama automatically below, or start it from the Start Menu, then click Refresh."
                 if models is None else
                 "No AI models installed yet. In a terminal run:  ollama pull qwen3:4b-instruct  then click Refresh.")
             self.model_state.set("Offline" if models is None else "No model", T.RED)

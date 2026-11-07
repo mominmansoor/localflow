@@ -343,9 +343,13 @@ class LocalFlow:
                for x in (g("snippets") or []) + (g("commands.items") or [])):
             clip = delivery.clip_get() or ""
         r = pipeline.process(raw, sess.eff, clip)
-        if str(r.info.get("llm", "")).startswith("error") and time.monotonic() - self._llm_warned > 300:
+        if str(r.info.get("llm", "")).startswith("error") and time.monotonic() - self._llm_warned > 60:
             self._llm_warned = time.monotonic()
-            self.bridge.message.emit("AI cleanup offline - is Ollama running?", True)
+            if self.s.get("cleanup.start_ollama") and not cleanup.ollama_up(self.s.get):
+                self.bridge.message.emit("Starting Ollama - AI cleanup back in a moment", False)
+                threading.Thread(target=self._warm_llm, daemon=True).start()
+            else:
+                self.bridge.message.emit("AI cleanup offline - is Ollama running?", True)
         hist_on = self.s.get("history.enabled")
         if r.command:
             delivery.run_command(r.command, clip)
@@ -411,6 +415,7 @@ class LocalFlow:
     # startup helpers
     # =======================================================================
     def _warm_llm(self):
+        cleanup.ensure_ollama(self.s.get)            # closed Ollama? start it (server only)
         models = cleanup.installed_models(self.s.get)
         self.llm_models = [m["name"] for m in models or []]
         model, note = cleanup.resolve_model(self.s.get, models)

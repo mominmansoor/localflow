@@ -275,3 +275,33 @@ def test_guard_rejects_made_up_numbers():
 ])
 def test_guard_keeps_spoken_numbers(source, out):
     assert guard(source, out) is not None
+
+
+def test_ensure_ollama_noop_when_running(settings, monkeypatch):
+    import subprocess
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: pytest.fail("must not start a second Ollama"))
+    assert cleanup.ensure_ollama(settings.get) is True
+
+
+def test_ensure_ollama_starts_it_when_down(settings, monkeypatch, tmp_path):
+    import subprocess
+    settings.set("cleanup.ollama_url", "http://127.0.0.1:9")
+    exe = tmp_path / "Programs" / "Ollama" / "ollama.exe"
+    exe.parent.mkdir(parents=True)
+    exe.write_text("")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    started = []
+    monkeypatch.setattr(subprocess, "Popen", lambda args, **k: started.append(args))
+    assert cleanup.ensure_ollama(settings.get, wait_s=0.5) is False      # fake exe never answers
+    assert started == [[str(exe), "serve"]]
+
+
+def test_ensure_ollama_respects_setting_and_remote_hosts(settings, monkeypatch):
+    import subprocess
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: pytest.fail("should not start"))
+    settings.set("cleanup.ollama_url", "http://127.0.0.1:9")
+    settings.set("cleanup.start_ollama", False)
+    assert cleanup.ensure_ollama(settings.get, wait_s=0.1) is False
+    settings.set("cleanup.start_ollama", True)
+    settings.set("cleanup.ollama_url", "http://192.168.1.50:11434")
+    assert cleanup.ensure_ollama(settings.get, wait_s=0.1) is False

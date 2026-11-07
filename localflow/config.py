@@ -90,6 +90,7 @@ DEFAULTS: dict = {
         "llm_keep_alive": "2h",
         "llm_timeout_s": 6,
         "llm_min_words": 4,
+        "start_ollama": True,          # start Ollama in the background if it isn't running
     },
     "formatting": {
         "inline_commands": True,
