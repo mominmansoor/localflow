@@ -234,3 +234,23 @@ def test_cable_returning_headset_switches_back(env):
     rec._last_cb = 10.0
     rec.watch_once(now=10.0)
     assert not rec.fallback and sd.query_devices()[sd.opened[-1]]["name"].startswith("Microphone (HyperX")
+
+
+def test_headset_turned_on_after_start_shows_in_menu(env):
+    """The bug: Discord sees the headset, LocalFlow's mic menu doesn't (PortAudio's old snapshot)."""
+    sd, _ = env
+    rec = audio.Recorder(None, keep_open=True)
+    rec.open()
+    assert [n for _, n in audio.list_input_devices()] == [WEBCAM]
+    sd.present = [HEADSET_FULL, WEBCAM]                 # headset switched on later; snapshot still old
+    assert HEADSET_FULL not in [d["name"] for d in sd.query_devices()]
+    names = [n for _, n in audio.list_input_devices()]  # opening the menu
+    assert HEADSET_FULL in names
+    assert rec._stream is not None and rec._stream.active   # the open mic stream was reopened, not left dead
+
+
+def test_no_rescan_when_nothing_new(env):
+    sd, _ = env
+    before = sd.inits
+    audio.list_input_devices(); audio.list_input_devices()
+    assert sd.inits == before

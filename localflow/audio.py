@@ -33,11 +33,51 @@ def _hostapi_index(name: str) -> int | None:
     return None
 
 
+# Set by the running Recorder: closes its stream, re-reads the device list, reopens.
+_on_rescan: Callable[[], None] | None = None
+_rescanning = False
+
+
+def _portaudio_stale() -> bool:
+    """True when Windows has a mic that PortAudio's snapshot (taken at startup) doesn't."""
+    live = live_input_names()
+    if not live:
+        return False
+    import sounddevice as sd
+    known = [d["name"] for d in sd.query_devices() if d["max_input_channels"] > 0]
+    return any(n.strip() and not any(names_match(n, k) for k in known) for n in live)
+
+
+def refresh_devices() -> bool:
+    """Pick up mics that were plugged in or woke up after LocalFlow started (a wireless
+    headset turned on later). Discord sees those because it asks Windows every time;
+    PortAudio only lists what it saw at startup. Returns True if it rescanned."""
+    global _rescanning
+    if _rescanning:
+        return False
+    try:
+        if not _portaudio_stale():
+            return False
+    except Exception:
+        return False
+    _rescanning = True
+    try:
+        log.info("New microphone found; re-reading the device list")
+        if _on_rescan is not None:
+            _on_rescan()            # the recorder closes, rescans and reopens its stream safely
+        else:
+            Recorder._rescan()
+    finally:
+        _rescanning = False
+    return True
+
+
 def list_input_devices() -> list[tuple[int, str]]:
     """One entry per physical mic, with its full name.
 
     Windows' old MME list cuts names to 31 characters ("Microphone (HyperX Cloud Stinge"),
     so the full names come from WASAPI when it's available."""
+    refresh_devices()
     import sounddevice as sd
     api = _hostapi_index("Windows WASAPI")
     if api is None:
@@ -201,6 +241,8 @@ class Recorder:
         self._rec = False
         self._lock = threading.Lock()
         self._dev_lock = threading.RLock()
+        global _on_rescan
+        _on_rescan = lambda: self._reconnect("new mic found")  # the mic menus use this to see new devices
         self._stream = None
         self._rate = RATE
         self._last_cb = 0.0
